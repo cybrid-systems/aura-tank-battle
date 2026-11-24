@@ -1,0 +1,90 @@
+;; Frozen sentinel plane. It is delivered with the seed and is not
+;; reachable from the evolvable genome.
+(require "std/string")
+(require "std/list")
+
+(export sentinel:version sentinel:protected sentinel:assertions
+        sentinel:fingerprint sentinel:check-genome sentinel:check-action
+        sentinel:help)
+
+(define (sentinel:version) "1.0.0")
+
+(define (sentinel:assertions)
+  (list "state-advance" "score-lives" "frame-budget"))
+
+(define (sentinel:protected)
+  (list "evaluate" "gate" "holdout-split" "constraints" "audit"
+        "assertions" "heldout" "contract" "approval" "sandbox"
+        "sentinel" "branch-protection"))
+
+(define (sentinel-fnv text)
+  (let loop ((i 0) (h 2166136261))
+    (if (>= i (string-length text))
+      (number->string h)
+      (loop (+ i 1)
+            (bitwise-and
+              (* (bitwise-xor h (char->integer (string-ref text i))) 16777619)
+              4294967295)))))
+
+(define (sentinel:fingerprint)
+  (sentinel-fnv
+    (string-append (string-join (sentinel:assertions) ",")
+                   "|" (string-join (sentinel:protected) ","))))
+
+(define (sentinel-protected? key)
+  (let loop ((xs (sentinel:protected)))
+    (cond ((not (pair? xs)) #f)
+          ((equal? key (car xs)) #t)
+          (else (loop (cdr xs))))))
+
+(define (sentinel:check-genome genome)
+  (cond
+    ((not (hash? genome))
+     (hash "ok" #f "reason" "genome:not-a-hash"))
+    (else
+     (let loop ((ks (hash-keys genome)))
+       (cond
+         ((not (pair? ks))
+          (hash "ok" #t "reason" "sentinel-untouched"))
+         ((sentinel-protected? (car ks))
+          (hash "ok" #f
+                "reason" (string-append "protected:" (car ks))))
+         (else (loop (cdr ks))))))))
+
+(define (sentinel-action? kind names)
+  (let loop ((xs names))
+    (cond ((not (pair? xs)) #f)
+          ((equal? kind (car xs)) #t)
+          (else (loop (cdr xs))))))
+
+(define (sentinel:check-action action)
+  (let ((kind (hash-ref action "kind" "")))
+    (cond
+      ((sentinel-action? kind
+                         (list "mutate-sentinel" "edit-sentinel"))
+       (hash "ok" #f "reason" "sentinel-immutable"))
+      ((sentinel-action? kind
+                         (list "force-push" "admin-merge" "direct-push"))
+       (hash "ok" #f "reason" kind))
+      ((equal? kind "auto-release")
+       (hash "ok" #f "reason" "no-auto-release"))
+      ((sentinel-action? kind (list "tag" "release"))
+       (if (eq? (hash-ref action "explicit_user" #f) #t)
+         (hash "ok" #t "reason" "user-authorized")
+         (hash "ok" #f "reason" "explicit-user-required")))
+      ((equal? kind "ingest-grant")
+       (hash "ok" #f "reason" "ingestion-never-grants"))
+      ((equal? kind "revert-pr")
+       (hash "ok" #t "reason" "revertible"))
+      ((equal? kind "merge")
+       (let ((m (hash-ref action "merge" (hash))))
+         (if (and (eq? (hash-ref m "branch_protected" #f) #t)
+                  (eq? (hash-ref m "required_checks" #f) #t)
+                  (not (eq? (hash-ref m "force" #f) #t))
+                  (not (eq? (hash-ref m "admin" #f) #t)))
+           (hash "ok" #t "reason" "protected-merge")
+           (hash "ok" #f "reason" "protected-merge-required"))))
+      (else (hash "ok" #f "reason" "unknown-action")))))
+
+(define (sentinel:help)
+  "Sentinel: (sentinel:check-genome genome); (sentinel:check-action action); (sentinel:fingerprint)")

@@ -1,0 +1,19 @@
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/cybrid-systems/aura-ci@sha256:66392ce2a5f24668fb923d1c900c545435f6b453f3df585dc4668402c07042d5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned Aura
+        run: echo "$(bash scripts/install-aura.sh)" >> "$GITHUB_PATH"
+      - name: Test
+        run: aura test
+      - name: Playable headless demo
+        run: aura run game/main.aura
+      - name: Bootstrap seed round
+        run: aura run bootstrap/run.aura

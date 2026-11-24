@@ -1,0 +1,102 @@
+;; In-process rehearsal loop (#24/#29): one root state, N candidate
+;; step functions, N independent deep copies, N fibers, one winner. The
+;; candidate never writes a file; the caller decides whether to commit.
+
+(require "std/string")
+(require "std/list")
+(require "game/assert")
+
+(export loop:rehearse loop:rehearse-bounded loop:commit loop:copy loop:best loop:help)
+
+(define (loop:help)
+  "Loop: (loop:rehearse root candidates inputs ids); candidates = ({id, step}, ...); (loop:commit fn result)")
+
+(define (l-get h k d) (if (hash? h) (hash-ref h k d) d))
+
+(define (loop:copy x)
+  (cond
+    ((hash? x)
+     (let ((out (hash)))
+       (for-each (lambda (k) (hash-set! out k (loop:copy (hash-ref x k))))
+                 (hash-keys x))
+       out))
+    ((pair? x) (map loop:copy x))
+    (else x)))
+
+(define (loop:score result)
+  (if (equal? (l-get result "ok" #f) #t)
+    (+ 1000 (l-get (l-get result "state" (hash)) "score" 0))
+    (- 1000 (length (l-get result "failures" '())))))
+
+(define (loop:run-one root candidate inputs ids)
+  (let* ((id (l-get candidate "id" "candidate"))
+         (step (l-get candidate "step" #f))
+         (start (if (hash? (l-get candidate "root" #f))
+                  (loop:copy (l-get candidate "root" #f))
+                  (loop:copy root)))
+         (run (if step
+                (game:run start step inputs ids)
+                (hash "ok" #f "frames" 0 "failures" (list (hash "id" "missing-step"))
+                      "state" start))))
+    (hash "id" id
+          "ok" (l-get run "ok" #f)
+          "frames" (l-get run "frames" 0)
+          "failures" (l-get run "failures" '())
+          "score" (loop:score run)
+          "state" (l-get run "state" root))))
+
+(define (loop:best results)
+  (let loop ((xs results) (best #f) (score -999999999))
+    (cond ((not (pair? xs)) best)
+          ((> (l-get (car xs) "score" -999999999) score)
+           (loop (cdr xs) (car xs) (l-get (car xs) "score" -999999999)))
+          (else (loop (cdr xs) best score)))))
+
+(define (loop:rehearse root candidates inputs ids)
+  (if (not (pair? candidates))
+    (hash "ok" #f "error" "no-candidates")
+    (let* ((fids (map (lambda (c)
+                        (fiber:spawn (lambda () (loop:run-one root c inputs ids))))
+                      candidates))
+           (results (map (lambda (fid) (fiber:join fid)) fids))
+           (winner (loop:best results)))
+      (hash "ok" (and winner (equal? (l-get winner "ok" #f) #t))
+            "winner" (if winner (l-get winner "id" "") #f)
+            "results" results
+            "state" (if winner (l-get winner "state" root) root)))))
+
+(define (l-find-result results id)
+  (let loop ((xs results))
+    (cond ((not (pair? xs)) #f)
+          ((equal? (l-get (car xs) "id" "") id) (car xs))
+          (else (loop (cdr xs))))))
+
+(define (l-take xs n)
+  (cond ((<= n 0) '())
+        ((not (pair? xs)) '())
+        (else (cons (car xs) (l-take (cdr xs) (- n 1))))))
+
+(define (loop:rehearse-bounded root candidates inputs ids max-n)
+  (if (not (pair? candidates))
+    (hash "ok" #f "error" "no-candidates")
+    (let ((n (max 1 (if (number? max-n) max-n 1))))
+      (let loop ((xs candidates) (all '()) (winners '()) (batches 0))
+        (if (not (pair? xs))
+          (let ((best (loop:best winners)))
+            (hash "ok" (and best (equal? (l-get best "ok" #f) #t))
+                  "winner" (if best (l-get best "id" "") #f)
+                  "results" all
+                  "state" (if best (l-get best "state" root) root)
+                  "batches" batches))
+          (let* ((batch (l-take xs n))
+                 (run (loop:rehearse root batch inputs ids))
+                 (win (l-find-result (l-get run "results" '()) (l-get run "winner" #f))))
+            (loop (skip n xs)
+                  (append all (l-get run "results" '()))
+                  (if win (append winners (list win)) winners)
+                  (+ batches 1))))))))
+
+(define (loop:commit commit-fn result)
+  (if (and (equal? (l-get result "ok" #f) #t) commit-fn)
+    (try (commit-fn (l-get result "state" (hash))) (catch (e) #f))
+    #f))

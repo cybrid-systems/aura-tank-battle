@@ -1,0 +1,29 @@
+;; Playable headless entry: a deterministic input script drives the same
+;; arena:step the rehearsal fibers use. No renderer or target hook.
+(require "std/string")
+(require "std/list")
+(require "game/arena")
+(require "game/assert")
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+
+(define init (arena:new (hash "seed" 42 "players" 1 "levels" 2)))
+(define inputs (list (hash "move" "right")
+                     (hash "move" "right")
+                     (hash "fire" #t)
+                     (hash "move" "left")))
+(define ids (list "state-advance" "frame-budget" "visual-keyframe"
+                  "score-lives"))
+(define run (game:run init arena:step inputs ids))
+(define st (hash-ref run "state"))
+
+(line "demo" "ok")
+(line "tick" (hash-ref st "tick"))
+(line "player-x" (hash-ref (hash-ref st "player") "x"))
+(line "bullets" (length (hash-ref st "bullets")))
+(line "score" (hash-ref st "score"))
+(line "lives" (hash-ref st "lives"))
+(line "level" (hash-ref st "level"))
+(line "status" (hash-ref st "status"))
+(line "frames" (hash-ref run "frames"))
+(line "assertions-ok" (hash-ref run "ok"))

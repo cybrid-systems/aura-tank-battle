@@ -1,0 +1,67 @@
+;; Seed self-test: one round, isolated losers, sentinel untouched,
+;; and a PR plan that cannot tag, release, force or admin-merge.
+(require "std/string")
+(require "std/list")
+(require "sentinel/plane")
+(require "engine/evolve")
+
+(define (line k v)
+  (display k)
+  (display "=")
+  (display v)
+  (newline))
+
+(define (find-result rows id)
+  (let loop ((xs rows))
+    (cond ((not (pair? xs)) #f)
+          ((equal? (hash-ref (car xs) "id" "") id) (car xs))
+          (else (loop (cdr xs))))))
+
+(define root (hash "tick" 0 "value" 0))
+(define round (seed:round root))
+(define plan (hash-ref round "pr"))
+(define guard (hash-ref plan "guardrails"))
+(define loser (find-result (hash-ref round "results") "c0"))
+(define winner (find-result (hash-ref round "results") "c2"))
+
+(line "round-ok" (hash-ref round "ok"))
+(line "winner" (hash-ref round "winner"))
+(line "score" (hash-ref round "score"))
+(line "root-value" (hash-ref (hash-ref round "root") "value"))
+(line "loser-value" (hash-ref (hash-ref loser "state") "value"))
+(line "winner-value" (hash-ref (hash-ref winner "state") "value"))
+(line "sentinel-stable"
+      (string=? (hash-ref round "sentinel") (sentinel:fingerprint)))
+(line "genome-safe"
+      (hash-ref (sentinel:check-genome
+                  (hash "mutation-ops" (list "swap"))) "ok"))
+(line "genome-refused"
+      (hash-ref (sentinel:check-genome
+                  (hash "assertions" (list "deleted"))) "ok"))
+(line "redline-sentinel"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "mutate-sentinel")) "ok"))
+(line "redline-force"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "force-push")) "ok"))
+(line "redline-ingest"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "ingest-grant")) "ok"))
+(line "redline-auto-release"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "auto-release")) "ok"))
+(line "redline-tag"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "tag")) "ok"))
+(line "redline-revert"
+      (hash-ref (sentinel:check-action
+                  (hash "kind" "revert-pr")) "ok"))
+(line "plan-branch" (hash-ref plan "branch"))
+(line "plan-tag" (hash-ref guard "tag"))
+(line "plan-release" (hash-ref guard "release"))
+(line "plan-force" (hash-ref guard "force"))
+(line "plan-admin" (hash-ref guard "admin"))
+(line "plan-protected" (hash-ref guard "branch_protected"))
+(line "plan-auto-merge" (hash-ref guard "auto_merge"))
+(line "plan-files" (length (hash-ref plan "files")))
+(line "checks" (length (hash-ref plan "checks")))

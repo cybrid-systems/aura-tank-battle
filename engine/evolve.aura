@@ -1,0 +1,90 @@
+;; Seed evolution engine: one live state, N fiber rehearsals, one
+;; winner. It never writes a candidate file and never calls the
+;; conductor. The PR plan is data for the repository's own CI.
+(require "std/string")
+(require "std/list")
+(require "sentinel/plane")
+
+(export seed:help seed:candidates seed:score seed:run seed:round
+        seed:pr-plan seed:best)
+
+(define (seed:help)
+  "Seed: (seed:round state); (seed:pr-plan winner)")
+
+(define (seed:candidates)
+  (list (hash "id" "c0" "delta" 0)
+        (hash "id" "c1" "delta" 1)
+        (hash "id" "c2" "delta" 2)))
+
+(define (seed:score state) (hash-ref state "value" 0))
+
+(define (seed:run state candidate steps)
+  (let loop ((i 0) (s state))
+    (if (>= i steps)
+      s
+      (loop (+ i 1)
+            (hash-set
+              (hash-set s "tick" (+ 1 (hash-ref s "tick" 0)))
+              "value"
+              (+ (hash-ref s "value" 0) (hash-ref candidate "delta" 0)))))))
+
+(define (seed:best rows)
+  (let loop ((xs rows) (best #f))
+    (cond
+      ((not (pair? xs)) best)
+      ((or (not best)
+           (> (hash-ref (car xs) "score" 0)
+              (hash-ref best "score" 0)))
+       (loop (cdr xs) (car xs)))
+      (else (loop (cdr xs) best)))))
+
+(define (seed:round state)
+  (let* ((cands (seed:candidates))
+         (fids (map (lambda (c)
+                      (fiber:spawn (lambda () (seed:run state c 3))))
+                    cands))
+         (states (map (lambda (f) (fiber:join f)) fids))
+         (rows (map (lambda (c s)
+                      (hash "id" (hash-ref c "id")
+                            "score" (seed:score s)
+                            "state" s
+                            "genome" (hash "mutation-ops"
+                                            (list (hash-ref c "id")))))
+                    cands states))
+         (winner (seed:best rows))
+         (guarded (map (lambda (r)
+                         (sentinel:check-genome (hash-ref r "genome")))
+                       rows))
+         (ok? (and (hash? winner)
+                   (equal? (hash-ref
+                             (sentinel:check-genome
+                               (hash-ref winner "genome"))
+                             "ok")
+                           #t))))
+    (hash "ok" ok?
+          "winner" (if winner (hash-ref winner "id") #f)
+          "score" (if winner (hash-ref winner "score") 0)
+          "state" (if winner (hash-ref winner "state") state)
+          "root" state
+          "results" rows
+          "guarded" guarded
+          "sentinel" (sentinel:fingerprint)
+          "pr" (seed:pr-plan winner))))
+
+(define (seed:pr-plan winner)
+  (hash "branch" "bootstrap/seed"
+        "title" "Bootstrap seed round"
+        "body" "In-process rehearsal selected a winner; evidence attached."
+        "evidence" (hash "winner" (hash-ref winner "id")
+                         "score" (hash-ref winner "score")
+                         "sentinel" (sentinel:fingerprint))
+        "files" (list (hash "path" "game/tuning.seed"
+                             "content"
+                             (string-append "(seed "
+                                            (hash-ref winner "id")
+                                            ")")))
+        "checks" (list "aura test" "bootstrap/run.aura")
+        "guardrails" (hash "tag" #f "release" #f
+                            "force" #f "admin" #f
+                            "branch_protected" #t
+                            "auto_merge" #t)))

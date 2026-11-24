@@ -1,0 +1,105 @@
+;; Issue #23 — the headless tank state machine driven through the frame
+;; contract. Pure deterministic scripts; no renderer.
+(require "std/string")
+(require "std/list")
+(require "game/arena")
+(require "game/assert")
+
+(define (line k v)
+  (display k)
+  (display "=")
+  (display v)
+  (newline))
+
+(define (hash-copy h)
+  (let ((out (hash)))
+    (for-each (lambda (k) (hash-set! out k (hash-ref h k))) (hash-keys h))
+    out))
+
+(define (with h k v)
+  (let ((c (hash-copy h))) (hash-set! c k v) c))
+
+(define (base-state) (arena:new (hash "seed" 42 "players" 1)))
+(define invariants (list "state-advance" "score-lives" "frame-budget" "visual-keyframe"))
+
+(define move-run
+  (game:run (base-state) arena:step (list (hash "move" "right"))
+            (append invariants (list "move-right"))))
+(line "move-ok" (hash-ref move-run "ok"))
+(line "move-x" (hash-ref (hash-ref (hash-ref move-run "state") "player") "x"))
+
+(define fire-run
+  (game:run (base-state) arena:step (list (hash "fire" #t))
+            (append invariants (list "fire-bullet"))))
+(line "fire-ok" (hash-ref fire-run "ok"))
+(line "fire-bullets" (length (hash-ref (hash-ref fire-run "state") "bullets")))
+
+(define brick-before
+  (with (with (base-state) "player" (hash "x" 5 "y" 11 "dir" "up"))
+        "bricks" (list (hash "x" 5 "y" 9))))
+(define brick-run
+  (game:run brick-before arena:step (list (hash "fire" #t))
+            (append invariants (list "bullet-brick"))))
+(line "brick-ok" (hash-ref brick-run "ok"))
+(line "brick-left" (length (hash-ref (hash-ref brick-run "state") "bricks")))
+
+(define steel-before
+  (with (with (base-state) "player" (hash "x" 5 "y" 11 "dir" "up"))
+        "steel" (list (hash "x" 5 "y" 9))))
+(define steel-run
+  (game:run steel-before arena:step (list (hash "fire" #t))
+            (append invariants (list "bullet-steel"))))
+(line "steel-ok" (hash-ref steel-run "ok"))
+(line "steel-left" (length (hash-ref (hash-ref steel-run "state") "steel")))
+
+(define water-before
+  (with (with (base-state) "player" (hash "x" 8 "y" 7 "dir" "down"))
+        "water" (list (hash "x" 8 "y" 8))))
+(define water-run
+  (game:run water-before arena:step (list (hash "move" "down"))
+            (append invariants (list "player-water"))))
+(line "water-ok" (hash-ref water-run "ok"))
+(line "water-y" (hash-ref (hash-ref (hash-ref water-run "state") "player") "y"))
+
+(define base-before
+  (with (base-state) "bullets"
+        (list (hash "x" 6 "y" 11 "dir" "down" "owner" "enemy"))))
+(define base-run
+  (game:run base-before arena:step (list (hash))
+            (append invariants (list "base-destroyed-lose"))))
+(line "base-ok" (hash-ref base-run "ok"))
+(line "base-status" (hash-ref (hash-ref base-run "state") "status"))
+
+(define enemy-before
+  (with (with (arena:new (hash "seed" 42 "players" 1 "levels" 1))
+              "player" (hash "x" 5 "y" 11 "dir" "up"))
+        "enemies" (list (hash "x" 5 "y" 9))))
+(define enemy-run
+  (game:run enemy-before arena:step (list (hash "fire" #t))
+            (append invariants (list "enemy-destroy"))))
+(line "enemy-ok" (hash-ref enemy-run "ok"))
+(line "enemy-score" (hash-ref (hash-ref enemy-run "state") "score"))
+
+(define win-before
+  (with (with (base-state) "level" 2) "enemies" '()))
+(define win-run
+  (game:run win-before arena:step (list (hash))
+            (append invariants (list "clear-enemies-win"))))
+(line "win-ok" (hash-ref win-run "ok"))
+(line "win-status" (hash-ref (hash-ref win-run "state") "status"))
+
+(define next-before
+  (with (with (base-state) "level" 1) "enemies" '()))
+(define next-run
+  (game:run next-before arena:step (list (hash))
+            (append invariants (list "two-levels" "enemy-spawn"))))
+(line "next-ok" (hash-ref next-run "ok"))
+(line "next-level" (hash-ref (hash-ref next-run "state") "level"))
+(line "next-enemies" (length (hash-ref (hash-ref next-run "state") "enemies")))
+
+(define repeat-a (game:run (base-state) arena:step (list (hash "move" "right") (hash "fire" #t)) invariants))
+(define repeat-b (game:run (base-state) arena:step (list (hash "move" "right") (hash "fire" #t)) invariants))
+(line "repeat-x" (= (hash-ref (hash-ref (hash-ref repeat-a "state") "player") "x")
+                     (hash-ref (hash-ref (hash-ref repeat-b "state") "player") "x")))
+(line "repeat-tick" (= (hash-ref (hash-ref repeat-a "state") "tick")
+                        (hash-ref (hash-ref repeat-b "state") "tick")))

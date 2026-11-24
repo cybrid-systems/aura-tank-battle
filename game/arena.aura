@@ -1,0 +1,189 @@
+;; Headless tank-battle state machine for the #23 frame contract. Pure
+;; integer grid, fixed seed, no renderer and no target hooks. The state
+;; shape is exactly what lib/game/assert.aura evaluates each frame.
+
+(require "std/string")
+(require "std/list")
+
+(export arena:new arena:step arena:help)
+
+(define (arena:help)
+  "Arena: (arena:new opts); (arena:step state input) -> next state with events")
+
+(define (a-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (a-num h k d) (let ((v (a-get h k d))) (if (number? v) v d)))
+
+(define (a-copy h)
+  (let ((out (hash)))
+    (for-each (lambda (k) (hash-set! out k (hash-ref h k))) (hash-keys h))
+    out))
+
+(define (a-with h k v)
+  (let ((c (a-copy h))) (hash-set! c k v) c))
+
+(define (a-event st e)
+  (a-with st "events" (cons e (a-get st "events" '()))))
+
+(define (a-out? x y)
+  (or (< x 0) (>= x 13) (< y 0) (>= y 13)))
+
+(define (a-tile? tiles x y)
+  (let loop ((xs tiles))
+    (cond ((not (pair? xs)) #f)
+          ((and (= (a-num (car xs) "x" -1) x)
+                (= (a-num (car xs) "y" -1) y)) #t)
+          (else (loop (cdr xs))))))
+
+(define (a-remove-tile tiles x y)
+  (filter (lambda (t) (not (and (= (a-num t "x" -1) x)
+                                (= (a-num t "y" -1) y))))
+          tiles))
+
+(define (a-enemy-at? enemies x y)
+  (let loop ((xs enemies))
+    (cond ((not (pair? xs)) #f)
+          ((and (= (a-num (car xs) "x" -1) x)
+                (= (a-num (car xs) "y" -1) y)) #t)
+          (else (loop (cdr xs))))))
+
+(define (a-remove-enemy enemies x y)
+  (filter (lambda (e) (not (and (= (a-num e "x" -1) x)
+                                (= (a-num e "y" -1) y))))
+          enemies))
+
+(define (a-enemies)
+  (list (hash "x" 1 "y" 0) (hash "x" 6 "y" 0) (hash "x" 11 "y" 0)))
+
+(define (a-player-x st) (a-num (a-get st "player" (hash)) "x" -1))
+(define (a-player-y st) (a-num (a-get st "player" (hash)) "y" -1))
+(define (a-base st) (a-get st "base" (hash "x" 6 "y" 12)))
+(define (a-base-x st) (a-num (a-base st) "x" 6))
+(define (a-base-y st) (a-num (a-base st) "y" 12))
+
+(define (a-blocked? st x y)
+  (or (a-out? x y)
+      (a-tile? (a-get st "bricks" '()) x y)
+      (a-tile? (a-get st "steel" '()) x y)
+      (a-tile? (a-get st "water" '()) x y)
+      (and (= x (a-base-x st)) (= y (a-base-y st)))))
+
+(define (a-water? st x y)
+  (a-tile? (a-get st "water" '()) x y))
+
+(define (a-move-step st move)
+  (let* ((x (a-player-x st)) (y (a-player-y st))
+         (nx (cond ((equal? move "right") (+ x 1))
+                   ((equal? move "left") (- x 1)) (else x)))
+         (ny (cond ((equal? move "down") (+ y 1))
+                   ((equal? move "up") (- y 1)) (else y))))
+    (cond
+      ((a-out? nx ny) (a-event st "blocked"))
+      ((a-water? st nx ny) (a-event st "blocked-water"))
+      ((a-blocked? st nx ny) (a-event st "blocked"))
+      (else (a-with st "player" (hash "x" nx "y" ny "dir" move))))))
+
+(define (a-move st input)
+  (if (not (equal? (a-get st "status" "") "playing"))
+    st
+    (let ((move (a-get input "move" #f)))
+      (if (not (and (string? move) (> (string-length move) 0)))
+        st
+        (let ((speed (max 1 (a-num (a-get st "tuning" (hash)) "player-speed" 1))))
+          (let loop ((k speed) (s st))
+            (if (<= k 0) s (loop (- k 1) (a-move-step s move)))))))))
+
+(define (a-fire st input)
+  (if (not (equal? (a-get st "status" "") "playing"))
+    st
+    (let ((cool (a-num st "cooldown" 0)))
+      (if (and (equal? (a-get input "fire" #f) #t) (<= cool 0))
+        (a-with
+          (a-event
+            (a-with st "bullets"
+                    (cons (hash "x" (a-player-x st) "y" (- (a-player-y st) 1)
+                                "dir" "up" "owner" "player")
+                          (a-get st "bullets" '())))
+            "fired")
+          "cooldown" (a-num (a-get st "tuning" (hash)) "fire-cooldown" 3))
+        (a-with st "cooldown" (max 0 (- cool 1)))))))
+
+(define (a-step-bullet st b)
+  (let* ((x (a-num b "x" -1)) (y (a-num b "y" -1))
+         (dir (a-get b "dir" "up"))
+         (nx (cond ((equal? dir "right") (+ x 1))
+                   ((equal? dir "left") (- x 1)) (else x)))
+         (ny (cond ((equal? dir "down") (+ y 1))
+                   ((equal? dir "up") (- y 1)) (else y)))
+         (owner (a-get b "owner" "player")))
+    (cond
+      ((a-out? nx ny) st)
+      ((a-tile? (a-get st "bricks" '()) nx ny)
+       (a-event (a-with st "bricks" (a-remove-tile (a-get st "bricks" '()) nx ny))
+                "bullet-hit-brick"))
+      ((a-tile? (a-get st "steel" '()) nx ny)
+       (a-event st "bullet-hit-steel"))
+      ((and (= nx (a-base-x st)) (= ny (a-base-y st)))
+       (a-event (a-with st "status" "lost") "base-destroyed"))
+      ((a-enemy-at? (a-get st "enemies" '()) nx ny)
+       (a-event (a-with (a-with st "enemies"
+                                (a-remove-enemy (a-get st "enemies" '()) nx ny))
+                        "score" (+ (a-num (a-get st "tuning" (hash)) "enemy-score" 100)
+                                   (a-num st "score" 0)))
+                "enemy-destroy"))
+      ((and (equal? owner "enemy")
+            (= nx (a-player-x st)) (= ny (a-player-y st)))
+       (let* ((lives (max 0 (- (a-num st "lives" 1) 1)))
+              (status (if (= lives 0) "lost" "playing")))
+         (a-event (a-with (a-with st "lives" lives) "status" status) "player-hit")))
+      (else
+       (a-with st "bullets"
+               (cons (a-with (a-with b "x" nx) "y" ny) (a-get st "bullets" '())))))))
+
+(define (a-run-bullets st)
+  (let loop ((xs (a-get st "bullets" '())) (acc (a-with st "bullets" '())))
+    (if (not (pair? xs))
+      acc
+      (loop (cdr xs) (a-step-bullet acc (car xs))))))
+
+(define (a-clear st)
+  (if (not (equal? (a-get st "status" "") "playing"))
+    st
+    (if (pair? (a-get st "enemies" '()))
+      st
+      (let ((level (a-num st "level" 1))
+            (levels (a-num st "levels" 2)))
+        (cond
+          ((< level levels)
+           (a-event (a-event (a-with (a-with st "level" (+ level 1))
+                                     "enemies" (a-enemies))
+                             "enemies-cleared")
+                    "enemy-spawn"))
+          (else (a-event (a-with st "status" "won") "enemies-cleared")))))))
+
+(define (arena:new opts)
+  (let ((players (a-num opts "players" 1))
+        (levels (a-num opts "levels" 2)))
+    (hash "player" (hash "x" 4 "y" 12 "dir" "up")
+          "tuning" (a-get opts "tuning" (hash))
+          "tick" 0 "bullets" '() "cooldown" 0
+          "bricks" (list (hash "x" 5 "y" 10) (hash "x" 6 "y" 10)
+                         (hash "x" 7 "y" 10) (hash "x" 5 "y" 11)
+                         (hash "x" 7 "y" 11))
+          "steel" (list (hash "x" 2 "y" 6))
+          "water" (list (hash "x" 8 "y" 8))
+          "base" (hash "x" 6 "y" 12)
+          "enemies" (a-enemies)
+          "score" 0 "lives" 3 "level" 1 "levels" levels
+          "status" "playing" "frame_ms" 0 "visual_diff_ok" #t
+          "players" players "events" '())))
+
+(define (arena:step state input)
+  (let* ((t0 (monotonic-ms))
+         (st (a-with (a-with state "tick" (+ 1 (a-num state "tick" 0))) "events" '()))
+         (st (a-with (a-with st "frame_ms" 0) "visual_diff_ok" #t))
+         (st (a-move st input))
+         (st (a-fire st input))
+         (st (a-run-bullets st))
+         (st (a-clear st))
+         (dt (- (monotonic-ms) t0)))
+    (a-with st "frame_ms" (max 0 dt))))

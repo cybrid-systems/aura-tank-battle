@@ -1,0 +1,117 @@
+;; Game acceptance (#23): frame-level assertions for a deterministic
+;; tank-battle state. The checks run inside the rehearsal fiber; they do
+;; not read the filesystem, the network or a rendered frame.
+
+(require "std/string")
+(require "std/list")
+
+(export game:check game:check-all game:run game:assertion-ids game:failures
+        game:all-ok? game:help)
+
+(define (game:help)
+  "Game: (game:check before after events input id); (game:check-all before after events input); (game:run init step inputs)")
+
+(define (g-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (g-num h k d) (let ((v (g-get h k d))) (if (number? v) v d)))
+(define (g-list h k) (let ((v (g-get h k '()))) (if (pair? v) v '())))
+(define (g-player-x h) (g-num (g-get h "player" (hash)) "x" -1))
+(define (g-player-y h) (g-num (g-get h "player" (hash)) "y" -1))
+(define (g-count h k) (length (g-list h k)))
+(define (g-event? events e) (member? e events))
+(define (g-input input k) (g-get input k #f))
+
+(define (game:assertion-ids)
+  (list "move-right" "move-collision" "state-advance" "fire-bullet"
+        "bullet-brick" "bullet-steel" "player-water" "enemy-spawn"
+        "enemy-destroy" "base-destroyed-lose" "clear-enemies-win"
+        "two-levels" "score-lives" "frame-budget" "visual-keyframe"
+        "player-two-controls"))
+
+(define (game:check before after events input id)
+  (cond
+    ((equal? id "move-right")
+     (and (equal? (g-input input "move") "right")
+          (= (g-player-x after) (+ 1 (g-player-x before)))))
+    ((equal? id "move-collision")
+     (and (not (equal? (g-input input "move") #f))
+          (not (equal? (g-input input "move") ""))
+          (= (g-player-x before) (g-player-x after))
+          (= (g-player-y before) (g-player-y after))
+          (g-event? events "blocked")))
+    ((equal? id "state-advance")
+     (= (g-num after "tick" -1) (+ 1 (g-num before "tick" -2))))
+    ((equal? id "fire-bullet")
+     (and (equal? (g-input input "fire") #t)
+          (= (g-count after "bullets") (+ 1 (g-count before "bullets")))))
+    ((equal? id "bullet-brick")
+     (and (g-event? events "bullet-hit-brick")
+          (< (g-count after "bricks") (g-count before "bricks"))))
+    ((equal? id "bullet-steel")
+     (and (g-event? events "bullet-hit-steel")
+          (= (g-count after "steel") (g-count before "steel"))))
+    ((equal? id "player-water")
+     (and (g-event? events "blocked-water")
+          (= (g-player-x before) (g-player-x after))
+          (= (g-player-y before) (g-player-y after))))
+    ((equal? id "enemy-spawn")
+     (and (g-event? events "enemy-spawn")
+          (> (g-count after "enemies") (g-count before "enemies"))))
+    ((equal? id "enemy-destroy")
+     (and (g-event? events "enemy-destroy")
+          (< (g-count after "enemies") (g-count before "enemies"))
+          (> (g-num after "score" 0) (g-num before "score" 0))))
+    ((equal? id "base-destroyed-lose")
+     (and (g-event? events "base-destroyed")
+          (equal? (g-get after "status" "") "lost")))
+    ((equal? id "clear-enemies-win")
+     (and (g-event? events "enemies-cleared")
+          (equal? (g-get after "status" "") "won")))
+    ((equal? id "two-levels")
+     (= (g-num after "level" 0) (+ 1 (g-num before "level" 0))))
+    ((equal? id "score-lives")
+     (and (number? (g-get after "score" #f))
+          (number? (g-get after "lives" #f))
+          (>= (g-num after "score" 0) (g-num before "score" 0))
+          (>= (g-num after "lives" 0) 0)
+          (<= (g-num after "lives" 0) (g-num before "lives" 0))))
+    ((equal? id "frame-budget")
+     (<= (g-num after "frame_ms" 999999) 50))
+    ((equal? id "visual-keyframe")
+     (equal? (g-get after "visual_diff_ok" #f) #t))
+    ((equal? id "player-two-controls")
+     (>= (g-num after "players" 1) 2))
+    (else #f)))
+
+(define (game:check-list ids before after events input)
+  (map (lambda (id)
+         (hash "id" id "ok" (game:check before after events input id)))
+       ids))
+
+(define (game:check-all before after events input)
+  (game:check-list (game:assertion-ids) before after events input))
+
+(define (game:failures checks)
+  (filter (lambda (c) (not (g-get c "ok" #f))) checks))
+
+(define (game:all-ok? checks)
+  (not (pair? (game:failures checks))))
+
+(define (game:run init step inputs ids)
+  (let loop ((state init) (xs inputs) (frame 0) (frames '()) (bad '()) (last-error (hash)))
+    (if (not (pair? xs))
+      (hash "ok" (not (pair? bad))
+            "frames" frame
+            "failures" (reverse bad)
+            "checks" (reverse frames)
+            "state" state
+            "error" (g-get last-error "last_error" #f))
+      (let* ((input (car xs))
+             (res (try (step state input)
+                          (catch (e) (hash "state" state "events" '() "last_error" e))))
+             (after (g-get res "state" res))
+             (events (g-list res "events"))
+             (checks (game:check-list ids state after events input))
+             (fails (game:failures checks)))
+        (loop after (cdr xs) (+ frame 1) (cons checks frames)
+              (append (reverse fails) bad)
+              res)))))
