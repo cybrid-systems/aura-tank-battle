@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const web = path.join(root, "web");
@@ -20,11 +21,34 @@ const mime = {
   ".png": "image/png",
 };
 
-const child = spawn(aura, ["run", "game/server.aura"], {
+function readLlmKey() {
+  if (process.env.LLM_API_KEY) return process.env.LLM_API_KEY.trim();
+  const file = process.env.DEEPSEEK_KEY_FILE || path.join(os.homedir(), "code", "keys", "deepseek");
+  try {
+    return fs.readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+const llmKey = readLlmKey();
+const llmBase = process.env.LLM_BASE_URL || "https://api.deepseek.com/v1";
+const llmModel = process.env.LLM_MODEL || "deepseek-flash";
+const childArgs = ["run", "game/server.aura"];
+const childEnv = { ...process.env };
+if (llmKey) {
+  childEnv.LLM_API_KEY = llmKey;
+  childEnv.LLM_BASE_URL = llmBase;
+  childEnv.LLM_MODEL = llmModel;
+  childArgs.push("--grant", "network");
+}
+
+const child = spawn(aura, childArgs, {
   cwd: root,
-  env: { ...process.env },
+  env: childEnv,
   stdio: ["pipe", "pipe", "pipe"],
 });
+console.log(llmKey ? `LLM wish: ${llmModel}` : "LLM wish: keywords only");
 
 let out = "";
 let pending = [];
@@ -127,6 +151,10 @@ async function api(req, res, pathname) {
     }
     if (pathname === "/api/wish") {
       send(res, 200, await call({ cmd: "wish", theme: body.theme || "candy", seed: body.seed ?? 1 }, 120000));
+      return;
+    }
+    if (pathname === "/api/wish-text") {
+      send(res, 200, await call({ cmd: "wish-text", text: body.text || "", seed: body.seed ?? 1 }, 120000));
       return;
     }
     if (pathname === "/api/keep") {

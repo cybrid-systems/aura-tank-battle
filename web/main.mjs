@@ -550,11 +550,119 @@ function resumeGame() {
   }
 }
 
+function voicePanel() {
+  const wrap = document.createElement("div");
+  wrap.className = "voice-box";
+  const mic = document.createElement("button");
+  mic.className = "mic";
+  mic.textContent = "🎤 点我说话";
+  const status = document.createElement("div");
+  status.className = "voice-status";
+  status.textContent = "说一个愿望，比如「我想要会下雨的太空世界」。";
+  const heard = document.createElement("div");
+  heard.className = "voice-heard";
+  const send = document.createElement("button");
+  send.className = "primary voice-send";
+  send.textContent = "让 Aura 实现这个愿望";
+  send.style.display = "none";
+  let transcript = "";
+  send.addEventListener("click", () => {
+    if (transcript) wishText(transcript);
+  });
+
+  const Input = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (Input) {
+    let rec = null;
+    mic.addEventListener("click", () => {
+      if (rec) {
+        try { rec.stop(); } catch { /* already stopped */ }
+        rec = null;
+      }
+      transcript = "";
+      heard.textContent = "";
+      send.style.display = "none";
+      status.textContent = "小光在听……";
+      mic.textContent = "🎤 正在听";
+      rec = new Input();
+      rec.lang = "zh-CN";
+      rec.continuous = false;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+      rec.onresult = (event) => {
+        let text = "";
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          text += event.results[i][0].transcript;
+        }
+        transcript = text.trim();
+        heard.textContent = transcript ? `「${transcript}」` : "";
+        if (event.results[event.results.length - 1].isFinal) {
+          status.textContent = "Aura 听到了：";
+          send.style.display = "inline-flex";
+          mic.textContent = "🎤 再听一次";
+        }
+      };
+      rec.onerror = () => {
+        status.textContent = "没听清，再试一次，或者直接打字。";
+        mic.textContent = "🎤 再听一次";
+      };
+      rec.onend = () => {
+        if (!transcript) status.textContent = "没听清，再试一次，或者直接打字。";
+        mic.textContent = "🎤 再听一次";
+        rec = null;
+      };
+      try { rec.start(); } catch { status.textContent = "麦克风被挡住了，直接打字也可以。"; }
+    });
+  } else {
+    mic.style.display = "none";
+    status.textContent = "这个浏览器不支持语音，直接打字也可以。";
+  }
+
+  const row = document.createElement("div");
+  row.className = "voice-input";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.placeholder = "或者打字：我想要恐龙世界";
+  input.maxLength = 60;
+  const go = document.createElement("button");
+  go.className = "ghost";
+  go.textContent = "许愿";
+  const submit = () => {
+    const text = input.value.trim();
+    if (text) wishText(text);
+  };
+  go.addEventListener("click", submit);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+  });
+  row.append(input, go);
+  wrap.append(mic, status, heard, send, row);
+  return wrap;
+}
+
+async function wishText(text) {
+  if (busy) return;
+  busy = true;
+  sheet("Aura 正在听", `「${text}」——Aura 正在把小愿望搭成世界……`, () => {});
+  try {
+    const seed = (Date.now() % 100000) + 1;
+    const res = await post("/api/wish-text", { text, seed });
+    if (res.type === "error") throw new Error(res.error || "wish failed");
+    const theme = themeList().find((t) => t.id === res.theme)
+      || { id: res.theme, label: res.label, emoji: "✨" };
+    showWishCards({ ...theme, label: res.label || theme.label }, res);
+  } catch (err) {
+    showError("Aura 还没听清，再说一次吧。");
+  } finally {
+    busy = false;
+  }
+}
+
 function openWish() {
   if (busy) return;
   stopLoop();
   paused = true;
-  sheet("想要什么世界？", "选一个贴纸，Aura 会搭三个小世界，先自己试玩，再让你挑。", (box) => {
+  sheet("想要什么世界？", "按一下话筒说愿望，或选一个贴纸。Aura 会搭三个小世界，先自己试玩。", (box) => {
+    box.append(voicePanel());
     const grid = document.createElement("div");
     grid.className = "theme-grid";
     for (const t of themeList()) {
@@ -622,10 +730,12 @@ function drawPreview(cv, p) {
 
 function showWishCards(theme, res) {
   const keepCount = (res.candidates || []).filter((c) => c.verdict === "KEEP").length;
+  const label = res.label || theme.label || theme.id;
   const title = keepCount ? `${theme.emoji || "✨"} 挑一个世界` : "魔法还不够稳";
+  const heard = res.heard ? `Aura 听到「${res.heard}」。` : "";
   const text = keepCount
-    ? "绿色星星的是 Aura 试玩通过的世界，点一下就出发。"
-    : "这次的世界都还不够公平，再让 Aura 想一次？";
+    ? `${heard}这些是 Aura 试玩通过的小世界，点一下就出发。`
+    : `${heard}这次的世界都还不够公平，再让 Aura 想一次？`;
   sheet(title, text, (box) => {
     const grid = document.createElement("div");
     grid.className = "wish-grid";
@@ -638,7 +748,7 @@ function showWishCards(theme, res) {
       drawPreview(cv, c.preview || {});
       const name = document.createElement("div");
       name.className = "wish-name";
-      name.textContent = `${theme.label || theme.id} · ${Number(c.slot) + 1}`;
+      name.textContent = `${label} · ${Number(c.slot) + 1}`;
       const badge = document.createElement("div");
       badge.className = "wish-badge";
       badge.textContent = ok ? "✨ 可以玩" : "💨 再试试";

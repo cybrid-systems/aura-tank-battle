@@ -3,13 +3,15 @@
 ;; offered back to the child.
 (require "std/string")
 (require "std/list")
+(require "std/llm" all:)
 (require "game/level")
 (require "game/evolve")
 
-(export wish:themes wish:base wish:propose wish:wire wish:help)
+(export wish:themes wish:base wish:propose wish:custom wish:from-text
+        wish:keywords wish:wire wish:help)
 
 (define (wish:help)
-  "Wish: (wish:themes) -> sticker list; (wish:propose theme seed) -> three trial candidates.")
+  "Wish: (wish:themes) -> stickers; (wish:propose theme seed) -> three trials; (wish:from-text text seed) -> an interpreted wish.")
 
 (define (wish-shield)
   (list (list 5 10) (list 6 10) (list 7 10) (list 5 11) (list 7 11)))
@@ -67,6 +69,157 @@
                                (hash-ref d "steel")
                                (hash-ref d "water")
                                (hash-ref d "cooldown"))))))
+
+; ── Text and voice wishes (#LLM) ───────────────────────────────
+; The model never writes code. It returns a small JSON hint: theme plus a
+; few optional water/brick cells. The same EDSL validator and evo:trial
+; gate then decide what the child sees.
+
+(define (wish-cell-ok? x y)
+  (and (number? x) (number? y)
+       (>= x 0) (< x 13) (>= y 0) (< y 13)
+       (not (and (= x 4) (= y 12)))
+       (not (and (= x 6) (= y 12)))
+       (not (or (and (= x 1) (= y 0))
+                (and (= x 6) (= y 0))
+                (and (= x 11) (= y 0))))))
+
+(define (wish-take xs n)
+  (let loop ((ys xs) (k 0) (acc '()))
+    (if (or (not (pair? ys)) (>= k n))
+      (reverse acc)
+      (loop (cdr ys) (+ k 1) (cons (car ys) acc)))))
+
+(define (wish-coords data key)
+  (let ((v (if (hash? data) (hash-ref data key #f) #f)))
+    (if (not (pair? v))
+      '()
+      (wish-take
+        (filter (lambda (p)
+                  (and (pair? p)
+                       (pair? (cdr p))
+                       (wish-cell-ok? (car p) (car (cdr p)))))
+                v)
+        4))))
+
+(define (wish-spec-like spec bricks steel water)
+  (hash "ok" #t
+        "name" (hash-ref spec "name" "custom")
+        "bricks" bricks "steel" steel "water" water
+        "tuning" (hash-ref spec "tuning" (hash))))
+
+(define (wish:keywords text)
+  (let ((s (string-downcase (if (string? text) text ""))))
+    (cond
+      ((or (string-contains? s "糖果") (string-contains? s "糖")
+           (string-contains? s "candy") (string-contains? s "甜"))
+       "candy")
+      ((or (string-contains? s "恐龙") (string-contains? s "dino")
+           (string-contains? s "龙"))
+       "dino")
+      ((or (string-contains? s "太空") (string-contains? s "space")
+           (string-contains? s "星球") (string-contains? s "星"))
+       "space")
+      ((or (string-contains? s "海底") (string-contains? s "海")
+           (string-contains? s "水") (string-contains? s "ocean")
+           (string-contains? s "鱼"))
+       "ocean")
+      ((or (string-contains? s "彩虹") (string-contains? s "rainbow")
+           (string-contains? s "云"))
+       "rainbow")
+      (else "candy"))))
+
+(define (wish-last-index s ch)
+  (let loop ((i 0) (last -1))
+    (if (>= i (string-length s))
+      last
+      (loop (+ i 1) (if (= (string-ref s i) ch) i last)))))
+
+(define (wish-json-content content)
+  (let* ((s (string-trim content))
+         (start (string-find s "{"))
+         (end (wish-last-index s 125)))
+    (if (and (>= start 0) (> end start))
+      (substring s start (+ end 1))
+      s)))
+
+(define wish-llm-system
+  (string-append
+    "You translate a young child's tank-game wish into JSON only. "
+    "Pick theme from candy,dino,space,ocean,rainbow. "
+    "Optional water and bricks are arrays of [x,y] grid cells, 0..12, at most 4 each. "
+    "Never use the player (4,12), base (6,12), or enemy spawns (1,0),(6,0),(11,0). "
+    "Return one object: {\"theme\":\"...\",\"label\":\"...\","
+    "\"water\":[[x,y]],\"bricks\":[[x,y]]}. No prose, no code fences."))
+
+(define (wish:ask-llm text)
+  (if (not (and (string? text) (> (string-length text) 0)))
+    #f
+    (let* ((reply (try (llm:chat wish-llm-system text
+                                  (hash "max_tokens" 900 "temperature" 0.2)
+                                  40)
+                       (catch (e) #f)))
+           (content (if (hash? reply) (hash-ref reply "content" #f) #f)))
+      (if (not (and (string? content) (> (string-length content) 0)))
+        #f
+        (let* ((data (try (json-parse (wish-json-content content))
+                          (catch (e) #f)))
+               (theme (if (hash? data) (hash-ref data "theme" "") "")))
+          (if (not (and (string? theme) (hash? (wish-data theme))))
+            #f
+            (let ((label (hash-ref data "label" "")))
+              (hash "theme" theme
+                    "label" (if (and (string? label) (> (string-length label) 0))
+                              label
+                              (hash-ref (wish-data theme) "label" "小世界"))
+                    "water" (wish-coords data "water")
+                    "bricks" (wish-coords data "bricks")))))))))
+
+(define (wish:custom theme extras seed)
+  (let* ((base (wish:base theme))
+         (ok (and (hash? base) (hash-ref base "ok" #f)))
+         (label (if (and (hash? extras) (string? (hash-ref extras "label" #f)))
+                  (hash-ref extras "label")
+                  (if (hash? (wish-data theme))
+                    (hash-ref (wish-data theme) "label" "小世界")
+                    "小世界")))
+         (extra-b (if (hash? extras) (hash-ref extras "bricks" '()) '()))
+         (extra-w (if (hash? extras) (hash-ref extras "water" '()) '()))
+         (merged (if ok
+                   (wish-spec-like
+                     base
+                     (append (map (lambda (p) (hash "x" (car p) "y" (car (cdr p)))) extra-b)
+                             (hash-ref base "bricks" '()))
+                     (hash-ref base "steel" '())
+                     (append (map (lambda (p) (hash "x" (car p) "y" (car (cdr p)))) extra-w)
+                             (hash-ref base "water" '())))
+                   base))
+         (checked (if (hash? merged) (edsl:compile (edsl:form-of merged)) base))
+         (final (if (and (hash? checked) (hash-ref checked "ok" #f)) checked base)))
+    (if (not (and (hash? final) (hash-ref final "ok" #f)))
+      (hash "ok" #f "why" (if (hash? final) (hash-ref final "why" "bad-wish") "bad-wish"))
+      (let ((specs (list final
+                         (tank-evo:mutate final (+ seed 1) 1 theme)
+                         (tank-evo:mutate final (+ seed 2) 2 theme))))
+        (hash "ok" #t "theme" theme "label" label
+              "candidates" (wish-trials specs seed))))))
+
+(define (wish:from-text text seed)
+  (let* ((llm (wish:ask-llm text))
+         (fallback (wish:keywords text))
+         (theme (if (hash? llm) (hash-ref llm "theme" fallback) fallback))
+         (round (wish:custom theme (if (hash? llm) llm (hash)) seed))
+         (round2 (if (hash-ref round "ok" #f)
+                   round
+                   (wish:custom fallback (hash) seed))))
+    (if (hash-ref round2 "ok" #f)
+      (hash "ok" #t
+            "theme" (hash-ref round2 "theme" theme)
+            "label" (hash-ref round2 "label" "小世界")
+            "source" (if (hash? llm) "llm" "keywords")
+            "heard" (if (string? text) text "")
+            "candidates" (hash-ref round2 "candidates" '()))
+      round2)))
 
 (define (wish-trials specs seed)
   (let loop ((xs specs) (slot 0) (acc '()))

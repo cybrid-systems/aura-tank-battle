@@ -43,6 +43,21 @@
           "form" (s-get c "form" "")
           "preview" (wish:wire spec))))
 
+(define (run-wish-text req)
+  (let* ((text (s-get req "text" ""))
+         (seed (s-num req "seed" 1))
+         (round (wish:from-text text seed)))
+    (if (not (s-get round "ok" #f))
+      (hash "type" "error" "error" (s-get round "why" "wish-text-failed"))
+      (begin
+        (set! *wish* (s-get round "candidates" '()))
+        (hash "type" "wish"
+              "theme" (s-get round "theme" "candy")
+              "label" (s-get round "label" "小世界")
+              "source" (s-get round "source" "keywords")
+              "heard" (s-get round "heard" "")
+              "candidates" (map wish-candidate-msg *wish*))))))
+
 (define (run-wish req)
   (let* ((theme (s-get req "theme" "candy"))
          (seed (s-num req "seed" 1))
@@ -101,6 +116,8 @@
        (run-evolve st req))
       ((equal? cmd "wish")
        (run-wish req))
+      ((equal? cmd "wish-text")
+       (run-wish-text req))
       ((equal? cmd "keep")
        (run-keep st req))
       ((equal? cmd "ping")

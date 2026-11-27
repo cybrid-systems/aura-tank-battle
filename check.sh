@@ -26,6 +26,8 @@ echo "== evolution demo"
 aura run game/evolve-demo.aura >/dev/null
 
 echo "== server ping"
-printf '{"cmd":"ping"}\n' | aura run game/server.aura | grep -q '"pong"'
+server_out=$(printf '{"cmd":"ping"}\n{"cmd":"wish-text","text":"海底的小鱼","seed":1}\n' | aura run game/server.aura)
+printf '%s' "$server_out" | grep -q '"pong"'
+printf '%s' "$server_out" | grep -q '"theme":"ocean"'
 
 echo "checks ok"

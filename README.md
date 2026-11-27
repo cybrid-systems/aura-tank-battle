@@ -36,7 +36,15 @@ and prints the page URL, normally <http://127.0.0.1:8090>. Open it.
 
 Already have Aura? `AURA_BIN=/path/to/aura ./play.sh`. Pin a release with
 `AURA_VERSION=v0.3.4 ./play.sh`. If the port is taken, the bridge prints the
-next free one. On a Mac, run the same script in an [OrbStack](https://orbstack.dev)
+next free one.
+
+Voice wishes use the browser's speech recognition (Chrome/Edge; Safari uses
+its own). The bridge reads a DeepSeek key from `LLM_API_KEY` or
+`DEEPSEEK_KEY_FILE` (default `~/code/keys/deepseek`), starts the arena with
+`--grant network`, and prints `LLM wish: deepseek-flash`. No key, or no
+network, keeps the sticker and typed wishes working through the local keyword
+map. Only the recognized text is sent to Aura; the key never enters the repo
+or the page. On a Mac, run the same script in an [OrbStack](https://orbstack.dev)
 or Docker Desktop Linux VM; the nightly is a Linux binary.
 
 No browser? `./term.sh` plays the same arena in the terminal, and
@@ -60,11 +68,14 @@ the run ends.
 
 ## 许个愿 (the kid loop)
 
-Press **许个愿** (or `E`) and pick a sticker: 🍭 糖果世界, 🦕 恐龙乐园,
-🚀 太空基地, 🐠 海底泡泡, or 🌈 彩虹云朵. Aura proposes three small worlds,
-plays each one itself, and shows the ones that passed as mini boards. The
-child taps a board and the new world starts. 小光, the companion orb, levels
-up with every kept wish.
+Press **许个愿** (or `E`), then tap the microphone and say something
+like 「我想要会下雨的太空世界」, type a wish, or pick a sticker: 🍭 糖果世界,
+🦕 恐龙乐园, 🚀 太空基地, 🐠 海底泡泡, or 🌈 彩虹云朵. With a key, the LLM
+turns the sentence into a theme plus a few water/brick cells; without one,
+the local keyword map picks the closest theme. Aura then proposes three small
+worlds, plays each one itself, and shows the ones that passed as mini boards.
+The child taps a board and the new world starts. 小光, the companion orb,
+levels up with every kept wish.
 
 A world that fails the trial gets a "💨 再试试" card and is not offered. The
 child never sees a form, a fitness number, or a scary Game Over; the grown-up
@@ -103,12 +114,12 @@ It prints the baseline fitness, one line per candidate with `KEEP` or
 | `game/arena.aura` | Pure 13×13 state machine: move, fire, patrol, bullets, levels |
 | `game/level.aura` | Level EDSL compiler, validator and canonical printer |
 | `game/evolve.aura` | Mutation, autopilot, fitness and the `evo:trial` gate |
-| `game/wish.aura` | Kid sticker themes and the three-world wish round |
+| `game/wish.aura` | Kid themes, voice/text wishes, and the three-world round |
 | `game/server.aura` | Newline-JSON arena process used by the bridge |
 | `game/render.aura` | Terminal board and HUD strings |
 | `game/input.aura` | Terminal command parser |
 | `game/play.aura` | Terminal loop |
-| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/wish`, `/api/keep`, `/api/evolve` |
+| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/wish`, `/api/wish-text`, `/api/keep`, `/api/evolve` |
 | `web/` | Canvas renderer, HUD, overlay and evolution panel |
 | `tests/` | Aura golden tests |
 | `bootstrap/`, `engine/`, `sentinel/` | The original green-field seed round |

@@ -9,3 +9,6 @@ round-ok=#t
 round-count=3
 verdicts=(KEEP KEEP KEEP)
 names=(dino dino dino)
+keyword-space=space
+keyword-ocean=ocean
+keyword-rainbow=rainbow

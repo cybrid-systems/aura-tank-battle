@@ -22,6 +22,9 @@ jobs:
       - name: Evolution demo
         run: aura run game/evolve-demo.aura
       - name: Bridge smoke
-        run: printf '{"cmd":"ping"}\n' | aura run game/server.aura | grep -q '"pong"'
+        run: |
+          out=$(printf '{"cmd":"ping"}\n{"cmd":"wish-text","text":"海底的小鱼","seed":1}\n' | aura run game/server.aura)
+          printf '%s' "$out" | grep -q '"pong"'
+          printf '%s' "$out" | grep -q '"theme":"ocean"'
       - name: Bootstrap seed round
         run: aura run bootstrap/run.aura

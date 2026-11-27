@@ -28,3 +28,6 @@
       (map (lambda (c)
              (hash-ref (wish:wire (hash-ref c "spec" (hash))) "name" ""))
            (hash-ref round "candidates" '())))
+(line "keyword-space" (wish:keywords "我想要会下雨的太空世界"))
+(line "keyword-ocean" (wish:keywords "海底的小鱼"))
+(line "keyword-rainbow" (wish:keywords "彩虹云朵"))
