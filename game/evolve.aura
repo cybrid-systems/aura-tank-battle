@@ -1,0 +1,260 @@
+;; EDSL evolution for the tank arena. A level is proposed as an Aura data
+;; form, compiled by game/level.aura, and played by a deterministic autopilot
+;; for a fixed budget. evo:trial (std/evo-core) runs the replay in a child
+;; workspace; KEEP is only returned when every hard constraint passes.
+(require "std/string")
+(require "std/list")
+(require "std/evo-core" all:)
+(require "game/level")
+(require "game/arena")
+
+(export tank-evo:help tank-evo:auto-input tank-evo:play tank-evo:evaluate
+        tank-evo:trial tank-evo:mutate tank-evo:candidates tank-evo:evolve)
+
+(define (tank-evo:help)
+  "Tank evolution: (tank-evo:evolve spec seed) -> baseline + candidate trials; (tank-evo:trial spec seed slot) -> one KEEP/ROLLBACK.")
+
+(define (t-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (t-num h k d) (let ((v (t-get h k d))) (if (number? v) v d)))
+(define (t-player-x st) (t-num (t-get st "player" (hash)) "x" -1))
+(define (t-player-y st) (t-num (t-get st "player" (hash)) "y" -1))
+(define (t-cooldown st) (t-num st "cooldown" 0))
+
+(define (t-tile-at? tiles x y)
+  (let loop ((xs tiles))
+    (cond ((not (pair? xs)) #f)
+          ((and (= (t-num (car xs) "x" -1) x)
+                (= (t-num (car xs) "y" -1) y)) #t)
+          (else (loop (cdr xs))))))
+
+; Defend the base: the enemy closest to the bottom is the urgent one.
+(define (t-urgent-enemy st)
+  (let loop ((xs (t-get st "enemies" '())) (best #f) (best-y -1) (best-d 999))
+    (if (not (pair? xs))
+      best
+      (let* ((x (t-num (car xs) "x" -1))
+             (y (t-num (car xs) "y" -1))
+             (d (abs (- x (t-player-x st)))))
+        (if (or (> y best-y) (and (= y best-y) (< d best-d)))
+          (loop (cdr xs) (hash "x" x "y" y) y d)
+          (loop (cdr xs) best best-y best-d))))))
+
+; An enemy bullet in the player's column, close and moving down.
+(define (t-threat? st)
+  (let loop ((xs (t-get st "bullets" '())))
+    (cond ((not (pair? xs)) #f)
+          ((and (equal? (t-get (car xs) "owner" "player") "enemy")
+                (equal? (t-get (car xs) "dir" "up") "down")
+                (= (t-num (car xs) "x" -1) (t-player-x st))
+                (> (t-num (car xs) "y" -1) (t-player-y st))
+                (< (- (t-num (car xs) "y" -1) (t-player-y st)) 3)) #t)
+          (else (loop (cdr xs))))))
+
+; A player step is legal on the open grid: not a wall, water, base or
+; another tank. (The arena applies the same rule in a-blocked?.)
+(define (t-can-step? st x y)
+  (and (>= x 0) (< x 13) (>= y 0) (< y 13)
+       (not (t-tile-at? (t-get st "bricks" '()) x y))
+       (not (t-tile-at? (t-get st "steel" '()) x y))
+       (not (t-tile-at? (t-get st "water" '()) x y))
+       (not (t-tile-at? (t-get st "enemies" '()) x y))
+       (not (and (= x 6) (= y 12)))))
+
+(define (t-front-is-base? st dir)
+  (let* ((px (t-player-x st)) (py (t-player-y st))
+         (fx (cond ((equal? dir "left") (- px 1))
+                   ((equal? dir "right") (+ px 1))
+                   (else px)))
+         (fy (cond ((equal? dir "up") (- py 1))
+                   ((equal? dir "down") (+ py 1))
+                   (else py))))
+    (and (= fx 6) (= fy 12))))
+
+; Deterministic autopilot: dodge away from the base column, face the most
+; urgent enemy and fire down its lane. On the base column, take the round:
+; it hits the player or the shield instead of the base behind them.
+(define (tank-evo:auto-input st)
+  (let* ((px (t-player-x st))
+         (py (t-player-y st))
+         (target (t-urgent-enemy st))
+         (tx (if target (t-num target "x" px) px))
+         (ty (if target (t-num target "y" py) py))
+         (cool (t-cooldown st))
+         (same-x (= px tx))
+         (same-y (= py ty)))
+    (cond
+      ((and (t-threat? st) (not (= px 6)))
+       (if (> px 0) (hash "move" "left") (hash "move" "right")))
+      ; Fire the moment the barrel is on the target.
+      ((and same-x (< ty py) (<= cool 0)) (hash "face" "up" "fire" #t))
+      ((and same-x (> ty py) (<= cool 0)) (hash "face" "down" "fire" #t))
+      ((and same-y (< tx px) (<= cool 0)) (hash "face" "left" "fire" #t))
+      ((and same-y (> tx px) (<= cool 0)) (hash "face" "right" "fire" #t))
+      ; On the lane, hold the line while the gun cools down. Do not climb
+      ; into the enemy's row; the next round comes down this column.
+      ((and same-x ty py) (hash))
+      ((and same-y tx px) (hash))
+      ; Otherwise close the larger axis, then the other.
+      ((and (< px tx) (t-can-step? st (+ px 1) py)) (hash "move" "right"))
+      ((and (> px tx) (t-can-step? st (- px 1) py)) (hash "move" "left"))
+      ((and (< py ty) (t-can-step? st px (+ py 1))) (hash "move" "down"))
+      ((and (> py ty) (t-can-step? st px (- py 1))) (hash "move" "up"))
+      ; The base blocks a flat route: climb around it before shooting.
+      ((and (< px tx) (t-can-step? st px (- py 1))) (hash "move" "up"))
+      ((and (> px tx) (t-can-step? st px (- py 1))) (hash "move" "up"))
+      ; A wall blocks the path: shoot it (but never the base in front).
+      ((and (< px tx) (not (t-front-is-base? st "right")) (<= cool 0))
+       (hash "face" "right" "fire" #t))
+      ((and (> px tx) (not (t-front-is-base? st "left")) (<= cool 0))
+       (hash "face" "left" "fire" #t))
+      ((and (< py ty) (not (t-front-is-base? st "down")) (<= cool 0))
+       (hash "face" "down" "fire" #t))
+      ((and (> py ty) (<= cool 0)) (hash "face" "up" "fire" #t))
+      (else (hash "face" "up" "fire" #t)))))
+
+(define (tank-evo:play spec ticks)
+  (let loop ((i 0)
+             (st (arena:new (hash "spec" spec "levels" 1)))
+             (maxms 0))
+    (if (or (>= i ticks)
+            (not (equal? (t-get st "status" "playing") "playing")))
+      (hash "state" st "ticks" i "max_frame_ms" maxms)
+      (let ((next (arena:step st (tank-evo:auto-input st))))
+        (loop (+ i 1) next
+              (max maxms (t-num next "frame_ms" 0)))))))
+
+(define (tank-evo:fitness state play)
+  (let ((status (t-get state "status" "playing"))
+        (lives (t-num state "lives" 0))
+        (score (t-num state "score" 0))
+        (level (t-num state "level" 1))
+        (left (length (t-get state "enemies" '()))))
+    (+ (if (equal? status "won") 2000 0)
+       (if (equal? status "lost") 0 500)
+       (* 100 level) score (* 10 lives) (* 5 left)
+       ; A faster clear with more lives left is the better game.
+       (* 2 (- 80 (t-num play "ticks" 0))))))
+
+; The evaluate body is pure: it can run in the trial child workspace without
+; touching the live worldline. Constraints use 0 as pass and >0 as violation,
+; matching std/evo-core's feasibility rule.
+(define (tank-evo:evaluate spec ticks)
+  (let* ((ok (and (hash? spec) (equal? (hash-ref spec "ok" #f) #t)))
+         (play (if ok (tank-evo:play spec ticks) #f))
+         (st (if play (t-get play "state" (hash)) (hash)))
+         (status (t-get st "status" "playing"))
+         (maxms (if play (t-num play "max_frame_ms" 0) 0))
+         (fitness (if ok (tank-evo:fitness st play) -1000)))
+    (hash "status" "ok"
+          "objectives" (hash "fitness" fitness
+                             "score" (t-num st "score" 0)
+                             "level" (t-num st "level" 1))
+          "constraints" (hash "invalid" (if ok 0.0 1.0)
+                              "defeat" (if (and ok (not (equal? status "lost")))
+                                         0.0 1.0)
+                              "budget" (if (> maxms 50)
+                                         (/ (- maxms 50) 50.0)
+                                         0.0))
+          "behavior" (hash "ticks" (if play (t-get play "ticks" 0) 0)
+                           "enemies" (length (t-get st "enemies" '()))
+                           "status" status))))
+
+(define (tank-evo:trial spec seed slot)
+  (let* ((ok (and (hash? spec) (equal? (hash-ref spec "ok" #f) #t)))
+         (form (if ok (edsl:pretty (edsl:form-of spec)) "(level)"))
+         (cand (evo:candidate form
+                              (hash "id" (string-append "tank-" (number->string slot))
+                                    "target" "tank-level")))
+         (trial (evo:trial
+                  cand
+                  (hash "timeout-ms" 4000
+                        "apply" (lambda (c) #t)
+                        "evaluate" (lambda (c) (tank-evo:evaluate spec 80))))))
+    (hash "slot" slot
+          "form" form
+          "spec" spec
+          "trial" trial
+          "fitness" (or (evo:objective trial "fitness") -1000)
+          "verdict" (if (and (evo:trial-ok? trial) (evo:feasible? trial))
+                      "KEEP" "ROLLBACK")
+          "why" (if (and (evo:trial-ok? trial) (evo:feasible? trial))
+                  "fair" (t-get trial "why" "infeasible")))))
+
+; Spec helper: copy the hash, then recompile the canonical form so a
+; mutation that creates a duplicate or a bad tile is rejected by the same
+; validator the game uses.
+(define (t-copy-hash h)
+  (let ((out (hash)))
+    (for-each (lambda (k) (hash-set! out k (hash-ref h k))) (hash-keys h))
+    out))
+
+(define (t-with spec key value)
+  (let ((out (t-copy-hash spec))) (hash-set! out key value) out))
+
+(define (t-free-cell spec rng)
+  (let loop ((i 0))
+    (if (>= i 8)
+      #f
+      (let ((x (evo:rng-int! rng 2 11))
+            (y (evo:rng-int! rng 2 11)))
+        (if (or (and (= x 4) (= y 12)) (and (= x 6) (= y 12))
+                (and (= x 1) (= y 0)) (and (= x 6) (= y 0))
+                (and (= x 11) (= y 0))
+                (t-tile-at? (t-get spec "bricks" '()) x y)
+                (t-tile-at? (t-get spec "steel" '()) x y)
+                (t-tile-at? (t-get spec "water" '()) x y))
+          (loop (+ i 1))
+          (hash "x" x "y" y))))))
+
+(define (tank-evo:mutate spec seed slot)
+  (let* ((rng (evo:rng seed 0 slot))
+         (op (evo:rng-int! rng 0 5))
+         (bricks (t-get spec "bricks" '()))
+         (steel (t-get spec "steel" '()))
+         (water (t-get spec "water" '()))
+         (tuning (t-get spec "tuning" (hash)))
+         (cell (t-free-cell spec rng))
+         (next
+           (cond
+             ((and (= op 0) cell)
+              (t-with spec "bricks" (cons cell bricks)))
+             ((and (= op 1) (pair? bricks))
+              (t-with spec "bricks" (cdr bricks)))
+             ((and (= op 2) cell)
+              (t-with spec "water" (cons cell water)))
+             ((and (= op 3) cell)
+              (t-with spec "steel" (cons cell steel)))
+             ((= op 4)
+              (let ((t2 (t-copy-hash tuning)))
+                (hash-set! t2 "enemy-cooldown"
+                           (max 1 (min 12 (+ (t-num tuning "enemy-cooldown" 6)
+                                             (if (= (evo:rng-int! rng 0 2) 0) 1 -1)))))
+                (t-with spec "tuning" t2)))
+             (else spec))))
+    (edsl:compile (edsl:form-of (t-with next "name" "evolved")))))
+
+(define (tank-evo:candidates spec seed)
+  (map (lambda (slot) (tank-evo:trial (tank-evo:mutate spec seed slot) seed slot))
+       (list 0 1 2)))
+
+(define (tank-evo:evolve spec seed)
+  (let* ((base-play (tank-evo:evaluate spec 80))
+         (base-fit (or (evo:objective base-play "fitness") -1000))
+         (rows (tank-evo:candidates spec seed))
+         (best
+           (let loop ((xs rows) (best #f))
+             (cond ((not (pair? xs)) best)
+                   ((and (equal? (t-get (car xs) "verdict" "") "KEEP")
+                         (>= (t-num (car xs) "fitness" -1000) base-fit)
+                         (or (not best)
+                             (> (t-num (car xs) "fitness" -1000)
+                                (t-num best "fitness" -1000))))
+                    (loop (cdr xs) (car xs)))
+                   (else (loop (cdr xs) best))))))
+    (hash "baseline" (hash "fitness" base-fit
+                           "form" (edsl:pretty (edsl:form-of spec)))
+          "candidates" rows
+          "verdict" (if best "KEEP" "ROLLBACK")
+          "winner" (if best (t-get best "form" "") #f)
+          "spec" (if best (t-get best "spec" spec) spec)
+          "fitness" (if best (t-num best "fitness" base-fit) base-fit))))

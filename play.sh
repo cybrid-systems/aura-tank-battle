@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
-# Download the Aura nightly (sha256-checked, cached) and open the interactive
-# board. AURA_BIN=/path/to/aura skips the download.
+# Install the pinned Aura nightly, start the local bridge and serve the page.
+# AURA_BIN=/path/to/aura skips the download.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-if [[ -n "${AURA_BIN:-}" ]]; then
-  exec "${AURA_BIN}" run game/play.aura "$@"
+if [[ -z "${AURA_BIN:-}" ]]; then
+  if ! command -v aura >/dev/null 2>&1; then
+    bin="$(bash scripts/install-aura.sh)"
+    export PATH="${bin}:${PATH}"
+  fi
+  export AURA_BIN="$(command -v aura)"
 fi
 
-bin="$(bash scripts/install-aura.sh)"
-export PATH="${bin}:${PATH}"
-exec aura run game/play.aura "$@"
+node bridge/server.mjs

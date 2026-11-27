@@ -1,0 +1,23 @@
+;; The level EDSL is data: compile, validate, round-trip and reject.
+(require "std/string")
+(require "game/level")
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+
+(define base (edsl:compile (edsl:default)))
+(line "ok" (hash-ref base "ok" #f))
+(line "why" (hash-ref base "why" ""))
+(line "name" (edsl:name base))
+(line "bricks" (length (hash-ref base "bricks" '())))
+(line "steel" (length (hash-ref base "steel" '())))
+(line "water" (length (hash-ref base "water" '())))
+(line "roundtrip" (hash-ref (edsl:compile (edsl:form-of base)) "ok" #f))
+(line "pretty" (edsl:pretty (edsl:default)))
+
+(define (why form)
+  (hash-ref (edsl:compile form) "why" "ok"))
+(line "out-of-bounds" (why '(level (name x) (bricks (13 0)))))
+(line "base-sealed" (why '(level (name x) (bricks (5 12) (7 12) (6 11)))))
+(line "duplicate" (why '(level (name x) (bricks (5 10)) (steel (5 10)))))
+(line "tuning-range" (why '(level (name x) (tuning (player-speed 9)))))
+(line "bad-head" (why '(arena (name x))))

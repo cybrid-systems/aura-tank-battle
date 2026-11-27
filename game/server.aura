@@ -1,0 +1,76 @@
+;; Newline-JSON bridge for the HTML client. Node owns the socket and the
+;; browser; this process owns the arena and the EDSL evolution gate.
+(require "std/string")
+(require "std/list")
+(require "game/level")
+(require "game/arena")
+(require "game/evolve")
+
+(define *live-spec* (edsl:compile (edsl:default)))
+
+(define (s-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (s-num h k d) (let ((v (s-get h k d))) (if (number? v) v d)))
+(define (emit h) (display (json-encode h)) (newline))
+
+(define (web-state req)
+  (arena:new (hash "spec" *live-spec*
+                   "levels" (s-num req "levels" 2)
+                   "seed" (s-num req "seed" 42)
+                   "tuning" (hash "enemy-pace" 4))))
+
+(define (state-msg st)
+  (hash "type" "state"
+        "protocol" 1
+        "state" st
+        "level" (edsl:pretty (edsl:form-of *live-spec*))))
+
+(define (candidate-msg c)
+  (hash "slot" (s-get c "slot" 0)
+        "verdict" (s-get c "verdict" "ROLLBACK")
+        "fitness" (s-get c "fitness" 0)
+        "form" (s-get c "form" "")))
+
+(define (run-evolve st req)
+  (let* ((round (tank-evo:evolve *live-spec* (s-num req "seed" 42)))
+         (keep (equal? (s-get round "verdict" "") "KEEP"))
+         (won (s-get round "spec" *live-spec*))
+         (next (if keep
+                 (begin (set! *live-spec* won) (web-state req))
+                 st)))
+    (hash "type" "evolve"
+          "protocol" 1
+          "verdict" (s-get round "verdict" "ROLLBACK")
+          "baseline" (s-get (s-get round "baseline" (hash)) "fitness" 0)
+          "candidates" (map candidate-msg (s-get round "candidates" '()))
+          "form" (if keep (s-get round "winner" "")
+                    (edsl:pretty (edsl:form-of *live-spec*)))
+          "state" next)))
+
+(define (run-request req st)
+  (let ((cmd (s-get req "cmd" "")))
+    (cond
+      ((equal? cmd "tick")
+       (state-msg (arena:step st (s-get req "input" (hash)))))
+      ((equal? cmd "new")
+       (state-msg (web-state req)))
+      ((equal? cmd "evolve")
+       (run-evolve st req))
+      ((equal? cmd "ping")
+       (hash "type" "pong" "protocol" 1))
+      (else (hash "type" "error" "error" "unknown-command")))))
+
+(define (serve st)
+  (let ((line (read-line)))
+    (if (eof-object? line)
+      #t
+      (let ((req (try (json-parse line) (catch (e) #f))))
+        (if (not (hash? req))
+          (begin
+            (emit (hash "type" "error" "error" "bad-json"))
+            (serve st))
+          (let ((reply (try (run-request req st)
+                            (catch (e) (hash "type" "error" "error" "tank-error")))))
+            (emit reply)
+            (serve (s-get reply "state" st))))))))
+
+(serve (web-state (hash)))

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aura Tank Battle</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <div class="mark">A</div>
+        <div>
+          <h1>Aura Tank Battle</h1>
+          <p>An EDSL-evolved arena, running on Aura</p>
+        </div>
+      </div>
+      <div class="badge" id="level-name">courtyard</div>
+    </header>
+
+    <section class="hud" aria-label="Battle status">
+      <div class="chip"><span>Score</span><strong id="score">0</strong></div>
+      <div class="chip"><span>Lives</span><strong id="lives">3</strong></div>
+      <div class="chip"><span>Level</span><strong id="level">1 / 2</strong></div>
+      <div class="chip"><span>Enemies</span><strong id="enemies">3</strong></div>
+      <div class="chip"><span>Shield</span><strong id="shield">0</strong></div>
+    </section>
+
+    <main class="stage">
+      <canvas id="board" width="780" height="780" aria-label="Tank battle board"></canvas>
+      <div id="overlay" class="overlay"></div>
+    </main>
+
+    <div class="touch" aria-label="Touch controls">
+      <div class="dpad">
+        <button data-dir="up" aria-label="Move up">▲</button>
+        <button data-dir="left" aria-label="Move left">◀</button>
+        <button data-dir="down" aria-label="Move down">▼</button>
+        <button data-dir="right" aria-label="Move right">▶</button>
+      </div>
+      <button data-fire class="fire" aria-label="Fire">FIRE</button>
+    </div>
+
+    <section class="bar">
+      <div class="controls">
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows move</span>
+        <span><kbd>Space</kbd> fire</span>
+        <span><kbd>R</kbd> restart</span>
+        <span><kbd>E</kbd> evolve</span>
+      </div>
+      <div class="actions">
+        <button id="evolve" class="ghost">Evolve layout</button>
+        <button id="restart" class="primary">Restart</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>EDSL evolution</h2>
+        <span class="tag">evo:trial</span>
+      </div>
+      <p class="muted">
+        Every proposal is a <code>(level ...)</code> form. Three mutations are replayed by a
+        deterministic autopilot through <code>evo:trial</code>; only a fair, winning form is kept.
+      </p>
+      <div id="evo-log" class="evo-log">
+        <div class="empty">No proposals yet. Press <kbd>E</kbd> or Evolve layout.</div>
+      </div>
+    </section>
+  </div>
+  <script type="module" src="/main.mjs"></script>
+</body>
+</html>

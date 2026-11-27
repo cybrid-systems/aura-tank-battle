@@ -1,0 +1,36 @@
+;; The autopilot and the EDSL evolution gate are deterministic.
+(require "std/string")
+(require "std/list")
+(require "game/level")
+(require "game/evolve")
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+
+(define spec (edsl:compile (edsl:default)))
+(define play (tank-evo:play spec 80))
+(define state (hash-ref play "state"))
+
+(line "autopilot-status" (hash-ref state "status"))
+(line "autopilot-score" (hash-ref state "score"))
+(line "autopilot-level" (hash-ref state "level"))
+(line "autopilot-ticks" (hash-ref play "ticks"))
+
+(define trial (tank-evo:trial spec 42 0))
+(line "trial-verdict" (hash-ref trial "verdict"))
+(line "trial-fitness" (hash-ref trial "fitness"))
+
+(define round-a (tank-evo:evolve spec 0))
+(define round-b (tank-evo:evolve spec 0))
+(line "evolve-verdict" (hash-ref round-a "verdict"))
+(line "evolve-rollback"
+      (length (filter (lambda (c) (equal? (hash-ref c "verdict") "ROLLBACK"))
+                      (hash-ref round-a "candidates" '()))))
+(line "evolve-repeat"
+      (equal? (map (lambda (c) (list (hash-ref c "slot")
+                                     (hash-ref c "verdict")
+                                     (hash-ref c "fitness")))
+                   (hash-ref round-a "candidates" '()))
+              (map (lambda (c) (list (hash-ref c "slot")
+                                     (hash-ref c "verdict")
+                                     (hash-ref c "fitness")))
+                   (hash-ref round-b "candidates" '()))))

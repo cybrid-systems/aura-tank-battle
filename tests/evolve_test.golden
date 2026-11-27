@@ -1,0 +1,9 @@
+autopilot-status=won
+autopilot-score=300
+autopilot-level=1
+autopilot-ticks=19
+trial-verdict=KEEP
+trial-fitness=3042
+evolve-verdict=KEEP
+evolve-rollback=1
+evolve-repeat=#t

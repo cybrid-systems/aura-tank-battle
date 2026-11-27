@@ -1,0 +1,13 @@
+ok=#t
+why=fair
+name=courtyard
+bricks=5
+steel=1
+water=1
+roundtrip=#t
+pretty=(level (name courtyard) (bricks (5 10) (6 10) (7 10) (5 11) (7 11)) (steel (2 6)) (water (8 8)) (tuning (player-speed 1) (fire-cooldown 3) (enemy-cooldown 6) (enemy-score 100)))
+out-of-bounds=bricks:out-of-bounds
+base-sealed=base-sealed
+duplicate=duplicate-tile
+tuning-range=tuning-range
+bad-head=level-head-expected

@@ -97,10 +97,23 @@
       (a-tile? (a-get st "bricks" '()) x y)
       (a-tile? (a-get st "steel" '()) x y)
       (a-tile? (a-get st "water" '()) x y)
+      (a-enemy-at? (a-get st "enemies" '()) x y)
       (and (= x (a-base-x st)) (= y (a-base-y st)))))
 
 (define (a-water? st x y)
   (a-tile? (a-get st "water" '()) x y))
+
+; A blocked move still turns the hull, so the next shot goes where the
+; player pointed.
+(define (a-facing st dir)
+  (a-with st "player" (hash "x" (a-player-x st) "y" (a-player-y st) "dir" dir)))
+
+(define (a-face st input)
+  (let ((face (a-get input "face" #f)))
+    (if (and (string? face)
+             (member? face (list "up" "down" "left" "right")))
+      (a-facing st face)
+      st)))
 
 (define (a-move-step st move)
   (let* ((x (a-player-x st)) (y (a-player-y st))
@@ -109,9 +122,9 @@
          (ny (cond ((equal? move "down") (+ y 1))
                    ((equal? move "up") (- y 1)) (else y))))
     (cond
-      ((a-out? nx ny) (a-event st "blocked"))
-      ((a-water? st nx ny) (a-event st "blocked-water"))
-      ((a-blocked? st nx ny) (a-event st "blocked"))
+      ((a-out? nx ny) (a-event (a-facing st move) "blocked"))
+      ((a-water? st nx ny) (a-event (a-facing st move) "blocked-water"))
+      ((a-blocked? st nx ny) (a-event (a-facing st move) "blocked"))
       (else (a-with st "player" (hash "x" nx "y" ny "dir" move))))))
 
 (define (a-move st input)
@@ -124,20 +137,59 @@
           (let loop ((k speed) (s st))
             (if (<= k 0) s (loop (- k 1) (a-move-step s move)))))))))
 
+(define (a-front st)
+  (let* ((p (a-get st "player" (hash)))
+         (x (a-num p "x" 4))
+         (y (a-num p "y" 12))
+         (dir (a-get p "dir" "up")))
+    (list (cond ((equal? dir "left") (- x 1))
+                ((equal? dir "right") (+ x 1))
+                (else x))
+          (cond ((equal? dir "up") (- y 1))
+                ((equal? dir "down") (+ y 1))
+                (else y)))))
+
 (define (a-fire st input)
   (if (not (equal? (a-get st "status" "") "playing"))
     st
-    (let ((cool (a-num st "cooldown" 0)))
-      (if (and (equal? (a-get input "fire" #f) #t) (<= cool 0))
-        (a-with
-          (a-event
-            (a-with st "bullets"
-                    (cons (hash "x" (a-player-x st) "y" (- (a-player-y st) 1)
-                                "dir" "up" "owner" "player")
-                          (a-get st "bullets" '())))
-            "fired")
-          "cooldown" (a-num (a-get st "tuning" (hash)) "fire-cooldown" 3))
-        (a-with st "cooldown" (max 0 (- cool 1)))))))
+    (let* ((cool (a-num st "cooldown" 0))
+           (front (a-front st))
+           (fx (car front)) (fy (car (cdr front)))
+           (dir (a-get (a-get st "player" (hash)) "dir" "up"))
+           (cd (a-num (a-get st "tuning" (hash)) "fire-cooldown" 3))
+           (firing (and (equal? (a-get input "fire" #f) #t) (<= cool 0))))
+      (cond
+        ((not firing) (a-with st "cooldown" (max 0 (- cool 1))))
+        ((a-out? fx fy) (a-with (a-event st "fired") "cooldown" cd))
+        ; A wall directly in front is the shot: the player can clear the
+        ; base shield instead of being unable to reach the lane behind it.
+        ((a-tile? (a-get st "bricks" '()) fx fy)
+         (a-with
+           (a-event (a-with st "bricks"
+                            (a-remove-tile (a-get st "bricks" '()) fx fy))
+                    "bullet-hit-brick")
+           "cooldown" cd))
+        ((a-tile? (a-get st "steel" '()) fx fy)
+         (a-with (a-event st "bullet-hit-steel") "cooldown" cd))
+        ((and (= fx (a-base-x st)) (= fy (a-base-y st)))
+         (a-with (a-event st "base-blocked") "cooldown" cd))
+        ((a-enemy-at? (a-get st "enemies" '()) fx fy)
+         (a-with
+           (a-event
+             (a-with (a-with st "enemies"
+                             (a-remove-enemy (a-get st "enemies" '()) fx fy))
+                     "score" (+ (a-num (a-get st "tuning" (hash)) "enemy-score" 100)
+                                (a-num st "score" 0)))
+             "enemy-destroy")
+           "cooldown" cd))
+        (else
+         (a-with
+           (a-event
+             (a-with st "bullets"
+                     (cons (hash "x" fx "y" fy "dir" dir "owner" "player")
+                           (a-get st "bullets" '())))
+             "fired")
+           "cooldown" cd))))))
 
 (define (a-step-bullet st b)
   (let* ((x (a-num b "x" -1)) (y (a-num b "y" -1))
@@ -155,7 +207,9 @@
       ((a-tile? (a-get st "steel" '()) nx ny)
        (a-event st "bullet-hit-steel"))
       ((and (= nx (a-base-x st)) (= ny (a-base-y st)))
-       (a-event (a-with st "status" "lost") "base-destroyed"))
+       (if (equal? owner "enemy")
+         (a-event (a-with st "status" "lost") "base-destroyed")
+         (a-event st "base-blocked")))
       ; Only the player scores a kill; an enemy round passes through
       ; another enemy instead of trading the board for free points.
       ((and (equal? owner "player")
@@ -226,10 +280,8 @@
          (aim (or (= x (a-base-x st)) (= x (a-player-x st))))
          (st2 (if (and aim (<= cool 0) (< y 12))
                 (a-event
-                  (a-with st "bullets"
-                          (cons (hash "x" x "y" (+ y 1) "dir" "down"
-                                      "owner" "enemy")
-                                (a-get st "bullets" '())))
+                  (a-step-bullet st (hash "x" x "y" y "dir" "down"
+                                          "owner" "enemy"))
                   "enemy-fired")
                 st)))
     (hash "state" st2
@@ -239,17 +291,19 @@
                     (a-with moved "cooldown" (max 0 (- cool 1)))))))
 
 (define (a-enemies-step st)
-  (if (not (equal? (a-get st "status" "") "playing"))
-    st
-    (let loop ((xs (a-get st "enemies" '())) (cur st) (acc '()))
-      (if (not (pair? xs))
-        (a-with cur "enemies" (reverse acc))
-        (let* ((one (a-enemy-act cur (car xs)))
-               (moved (a-get one "enemy" (car xs)))
-               (next (a-get one "state" cur))
-               (next (a-with next "enemies"
-                             (append (reverse acc) (cons moved (cdr xs))))))
-          (loop (cdr xs) next (cons moved acc)))))))
+  (let ((pace (max 1 (a-num (a-get st "tuning" (hash)) "enemy-pace" 1))))
+    (if (or (not (equal? (a-get st "status" "") "playing"))
+            (not (= 0 (remainder (a-num st "tick" 1) pace))))
+      st
+      (let loop ((xs (a-get st "enemies" '())) (cur st) (acc '()))
+        (if (not (pair? xs))
+          (a-with cur "enemies" (reverse acc))
+          (let* ((one (a-enemy-act cur (car xs)))
+                 (moved (a-get one "enemy" (car xs)))
+                 (next (a-get one "state" cur))
+                 (next (a-with next "enemies"
+                               (append (reverse acc) (cons moved (cdr xs))))))
+            (loop (cdr xs) next (cons moved acc))))))))
 
 (define (a-clear st)
   (if (not (equal? (a-get st "status" "") "playing"))
@@ -276,20 +330,39 @@
              "enemy-spawn"))
           (else (a-event (a-with st "status" "won") "enemies-cleared")))))))
 
+(define (a-tune-merge base extra)
+  (let ((out (a-copy base)))
+    (if (hash? extra)
+      (for-each (lambda (k) (hash-set! out k (hash-ref extra k)))
+                (hash-keys extra))
+      #f)
+    out))
+
 (define (arena:new opts)
   (let* ((players (a-num opts "players" 1))
          (levels (a-num opts "levels" 2))
-         (layout (a-layout 1)))
+         (spec (a-get opts "spec" #f))
+         (layout (a-layout 1))
+         (tuning (a-tune-merge
+                   (if (hash? spec) (a-get spec "tuning" (hash)) (hash))
+                   (a-get opts "tuning" (hash)))))
     (hash "player" (hash "x" 4 "y" 12 "dir" "up")
-          "tuning" (a-get opts "tuning" (hash))
+          "tuning" tuning
           "tick" 0 "bullets" '() "cooldown" 0
-          "bricks" (a-get opts "bricks" (a-get layout "bricks" '()))
-          "steel" (a-get opts "steel" (a-get layout "steel" '()))
-          "water" (a-get opts "water" (a-get layout "water" '()))
+          "bricks" (a-get opts "bricks"
+                          (if (hash? spec) (a-get spec "bricks" '())
+                              (a-get layout "bricks" '())))
+          "steel" (a-get opts "steel"
+                         (if (hash? spec) (a-get spec "steel" '())
+                             (a-get layout "steel" '())))
+          "water" (a-get opts "water"
+                         (if (hash? spec) (a-get spec "water" '())
+                             (a-get layout "water" '())))
           "base" (hash "x" 6 "y" 12)
           "enemies" (a-enemies-for 1)
           "score" 0 "lives" 3 "level" 1 "levels" levels
           "seed" (a-num opts "seed" 0) "shield" 0
+          "level_name" (if (hash? spec) (a-get spec "name" "custom") "courtyard")
           "status" "playing" "frame_ms" 0 "visual_diff_ok" #t
           "players" players "events" '())))
 
@@ -298,6 +371,7 @@
          (st (a-with (a-with state "tick" (+ 1 (a-num state "tick" 0))) "events" '()))
          (st (a-with (a-with st "frame_ms" 0) "visual_diff_ok" #t))
          (st (a-with st "shield" (max 0 (- (a-num st "shield" 0) 1))))
+         (st (a-face st input))
          (st (a-move st input))
          (st (a-fire st input))
          (st (a-run-bullets st))

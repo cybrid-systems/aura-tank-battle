@@ -1,0 +1,202 @@
+;; Level EDSL for the tank arena. A level is a quoted Aura form:
+;;
+;;   (level
+;;     (name courtyard)
+;;     (bricks (5 10) (6 10) (7 10))
+;;     (steel (2 6))
+;;     (water (8 8))
+;;     (tuning (player-speed 1) (fire-cooldown 3)
+;;             (enemy-cooldown 6) (enemy-score 100)))
+;;
+;; The form is data. edsl:compile validates it into the flat hash the arena
+;; and the evolution gate use; edsl:form-of renders a compiled hash back to
+;; the same form. Nothing here evaluates or mutates code.
+(require "std/string")
+(require "std/list")
+
+(export edsl:default edsl:compile edsl:form-of edsl:pretty edsl:name
+        edsl:help)
+
+(define *edsl-default*
+  '(level
+     (name courtyard)
+     (bricks (5 10) (6 10) (7 10) (5 11) (7 11))
+     (steel (2 6))
+     (water (8 8))
+     (tuning (player-speed 1) (fire-cooldown 3)
+             (enemy-cooldown 6) (enemy-score 100))))
+
+(define (edsl:default) *edsl-default*)
+
+(define (edsl:help)
+  "Level EDSL: (level (name x) (bricks (x y)...) (steel...) (water...) (tuning (key n)...))")
+
+(define (e-sym x)
+  (cond ((symbol? x) (symbol->string x))
+        ((string? x) x)
+        (else #f)))
+
+(define (e-num x d)
+  (if (number? x) x d))
+
+(define (e-clause form name)
+  (let loop ((xs (if (pair? form) (cdr form) '())))
+    (cond ((not (pair? xs)) #f)
+          ((and (pair? (car xs)) (equal? (e-sym (car (car xs))) name))
+           (car xs))
+          (else (loop (cdr xs))))))
+
+(define (e-pairs clause)
+  (if (not (pair? clause))
+    (list)
+    (let loop ((xs (cdr clause)) (acc '()))
+      (cond ((not (pair? xs)) (reverse acc))
+            ((and (pair? (car xs)) (number? (car (car xs)))
+                  (pair? (cdr (car xs))) (number? (car (cdr (car xs)))))
+             (loop (cdr xs)
+                   (cons (hash "x" (car (car xs))
+                               "y" (car (cdr (car xs))))
+                         acc)))
+            (else (loop (cdr xs) acc))))))
+
+(define (e-tiles clause)
+  (map (lambda (p) (hash "x" (e-num (hash-ref p "x" -1) -1)
+                         "y" (e-num (hash-ref p "y" -1) -1)))
+       (e-pairs clause)))
+
+(define (e-tune clause)
+  (if (not (pair? clause))
+    (hash)
+    (let loop ((xs (cdr clause)) (out (hash)))
+      (cond ((not (pair? xs)) out)
+            ((and (pair? (car xs)) (number? (car (cdr (car xs)))))
+             (begin
+               (hash-set! out (e-sym (car (car xs)))
+                          (car (cdr (car xs))))
+               (loop (cdr xs) out)))
+            (else (loop (cdr xs) out))))))
+
+(define (e-in? x lo hi) (and (>= x lo) (<= x hi)))
+
+(define (e-on? tiles x y)
+  (let loop ((xs tiles))
+    (cond ((not (pair? xs)) #f)
+          ((and (= (e-num (hash-ref (car xs) "x" -1) -1) x)
+                (= (e-num (hash-ref (car xs) "y" -1) -1) y)) #t)
+          (else (loop (cdr xs))))))
+
+(define (e-check-tile x y)
+  (cond ((not (and (e-in? x 0 12) (e-in? y 0 12))) (hash "ok" #f "why" "out-of-bounds"))
+        ((and (= x 4) (= y 12)) (hash "ok" #f "why" "player-cell"))
+        ((and (= x 6) (= y 12)) (hash "ok" #f "why" "base-cell"))
+        ((or (and (= x 1) (= y 0)) (and (= x 6) (= y 0)) (and (= x 11) (= y 0)))
+         (hash "ok" #f "why" "enemy-spawn"))
+        (else (hash "ok" #t "why" ""))))
+
+(define (e-check-tiles name tiles)
+  (let loop ((xs tiles))
+    (if (not (pair? xs))
+      (hash "ok" #t "why" "")
+      (let ((one (e-check-tile (e-num (hash-ref (car xs) "x" -1) -1)
+                               (e-num (hash-ref (car xs) "y" -1) -1))))
+        (if (not (hash-ref one "ok" #f))
+          (hash "ok" #f "why" (string-append name ":" (hash-ref one "why" "")))
+          (loop (cdr xs)))))))
+
+(define (e-dup? a b)
+  (let loop ((xs a))
+    (cond ((not (pair? xs)) #f)
+          ((e-on? b (e-num (hash-ref (car xs) "x" -1) -1)
+                  (e-num (hash-ref (car xs) "y" -1) -1)) #t)
+          (else (loop (cdr xs))))))
+
+(define (e-base-ring-free? bricks steel water)
+  ; The ring is blocked only when all three neighbours are solid.
+  (not (and (or (e-on? bricks 5 12) (e-on? steel 5 12) (e-on? water 5 12))
+            (or (e-on? bricks 7 12) (e-on? steel 7 12) (e-on? water 7 12))
+            (or (e-on? bricks 6 11) (e-on? steel 6 11) (e-on? water 6 11)))))
+
+(define (edsl:compile form)
+  (cond
+    ((not (pair? form)) (hash "ok" #f "why" "not-a-level-form"))
+    ((not (equal? (e-sym (car form)) "level"))
+     (hash "ok" #f "why" "level-head-expected"))
+    (else
+     (let* ((name-clause (e-clause form "name"))
+            (name (if (and (pair? name-clause) (pair? (cdr name-clause)))
+                    (or (e-sym (car (cdr name-clause))) "custom")
+                    "custom"))
+            (bricks (e-tiles (e-clause form "bricks")))
+            (steel (e-tiles (e-clause form "steel")))
+            (water (e-tiles (e-clause form "water")))
+            (tuning (e-tune (e-clause form "tuning")))
+            (speed (e-num (hash-ref tuning "player-speed" 1) 1))
+            (fire (e-num (hash-ref tuning "fire-cooldown" 3) 3))
+            (ecool (e-num (hash-ref tuning "enemy-cooldown" 6) 6))
+            (escore (e-num (hash-ref tuning "enemy-score" 100) 100))
+            (checks (list (e-check-tiles "bricks" bricks)
+                          (e-check-tiles "steel" steel)
+                          (e-check-tiles "water" water)))
+            (bad (let loop ((xs checks))
+                   (cond ((not (pair? xs)) #f)
+                         ((not (hash-ref (car xs) "ok" #f)) (car xs))
+                         (else (loop (cdr xs))))))
+            (dup (or (e-dup? bricks steel) (e-dup? bricks water)
+                     (e-dup? steel water)))
+            (count-ok (and (<= (length bricks) 40)
+                           (<= (length steel) 12)
+                           (<= (length water) 12)))
+            (tune-ok (and (e-in? speed 1 3) (e-in? fire 1 10)
+                          (e-in? ecool 1 12) (e-in? escore 10 500))))
+       (cond
+         ((not (hash-ref (car checks) "ok" #t))
+          (hash "ok" #f "why" (hash-ref (car checks) "why" "bad-tile")))
+         (bad (hash "ok" #f "why" (hash-ref bad "why" "bad-tile")))
+         (dup (hash "ok" #f "why" "duplicate-tile"))
+         ((not count-ok) (hash "ok" #f "why" "tile-budget"))
+         ((not tune-ok) (hash "ok" #f "why" "tuning-range"))
+         ((not (e-base-ring-free? bricks steel water))
+          (hash "ok" #f "why" "base-sealed"))
+         (else
+          (hash "ok" #t "why" "fair" "name" name "form" form
+                "bricks" bricks "steel" steel "water" water
+                "tuning" (hash "player-speed" speed
+                               "fire-cooldown" fire
+                               "enemy-cooldown" ecool
+                               "enemy-score" escore))))))))
+
+(define (edsl:name spec)
+  (if (hash? spec) (hash-ref spec "name" "custom") "custom"))
+
+; Render a compiled hash back to a canonical EDSL form.
+(define (edsl:form-of spec)
+  (if (not (hash? spec))
+    *edsl-default*
+    (let* ((bricks (hash-ref spec "bricks" '()))
+           (steel (hash-ref spec "steel" '()))
+           (water (hash-ref spec "water" '()))
+           (tuning (hash-ref spec "tuning" (hash)))
+           (tile (lambda (t) (list (hash-ref t "x" 0) (hash-ref t "y" 0)))))
+      (list 'level
+            (list 'name (string->symbol (hash-ref spec "name" "custom")))
+            (cons 'bricks (map tile bricks))
+            (cons 'steel (map tile steel))
+            (cons 'water (map tile water))
+            (list 'tuning
+                  (list 'player-speed (hash-ref tuning "player-speed" 1))
+                  (list 'fire-cooldown (hash-ref tuning "fire-cooldown" 3))
+                  (list 'enemy-cooldown (hash-ref tuning "enemy-cooldown" 6))
+                  (list 'enemy-score (hash-ref tuning "enemy-score" 100)))))))
+
+(define (e-text x)
+  (cond ((symbol? x) (symbol->string x))
+        ((string? x) x)
+        ((number? x) (number->string x))
+        (else "?")))
+
+(define (edsl:pretty form)
+  (let loop ((x form))
+    (cond ((pair? x)
+           (string-append "(" (string-join (map loop x) " ") ")"))
+          ((null? x) "()")
+          (else (e-text x)))))

@@ -1,32 +1,27 @@
-# aura-tank-battle
+# Aura Tank Battle
 
-A playable tank battle that runs in your terminal. The arena, enemy patrol,
-bullets, scoring, levels and the ASCII board are one deterministic
-[Aura](https://github.com/cybrid-systems/aura) state machine. The demo, the
-golden tests and interactive play all call the same `arena:step`.
+A browser tank battle with a twist: the arena is not a fixed level. Each
+layout is an [Aura](https://github.com/cybrid-systems/aura) EDSL form, and an
+`evo:trial` gate decides whether a mutated form is kept or rolled back before
+it reaches the board.
 
 ```
-.E....E....E.
-.............
-.............
-.............
-.............
-.............
-..S..........
-.............
-........~....
-.............
-.....###.....
-.....#.#.....
-....P.B......
+(level
+  (name courtyard)
+  (bricks (5 10) (6 10) (7 10) (5 11) (7 11))
+  (steel (2 6))
+  (water (8 8))
+  (tuning (player-speed 1) (fire-cooldown 3)
+          (enemy-cooldown 6) (enemy-score 100)))
 ```
 
-`P` is you. `B` is the base. Keep it alive.
+Aura owns the arena and the evolution gate. The browser only draws the state
+and sends one input per tick through a tiny Node bridge.
 
 ## Quick start
 
-Linux x86_64 or arm64, `bash`, `curl`, and Python 3 for the baseline check.
-No C compiler, CMake or Docker.
+Linux x86_64 or arm64, `bash`, `curl`, Node.js 20+, and Python 3 for the
+baseline check.
 
 ```bash
 git clone https://github.com/cybrid-systems/aura-tank-battle.git
@@ -35,93 +30,79 @@ cd aura-tank-battle
 ```
 
 `./play.sh` downloads the [Aura nightly](https://github.com/cybrid-systems/aura/releases/tag/nightly)
-(sha256-checked, cached in `~/.cache/aura-agents`) and starts the board.
-Type one command per line:
-
-| Command | Action |
-| --- | --- |
-| `w` or `up` | Move up |
-| `a` or `left` | Move left |
-| `s` or `down` | Move down |
-| `d` or `right` | Move right |
-| `f` or `fire` | Fire |
-| `.` or `wait` | Spend a turn without moving |
-| `q` or `quit` | Leave the board |
+(sha256-checked, cached in `~/.cache/aura-agents`), starts the local bridge
+and prints the page URL, normally <http://127.0.0.1:8090>. Open it.
 
 Already have Aura? `AURA_BIN=/path/to/aura ./play.sh`. Pin a release with
-`AURA_VERSION=v0.3.4 ./play.sh`. On a Mac, run the same script in an
-[OrbStack](https://orbstack.dev) or Docker Desktop Linux VM; the nightly is a
-Linux binary.
+`AURA_VERSION=v0.3.4 ./play.sh`. If the port is taken, the bridge prints the
+next free one. On a Mac, run the same script in an [OrbStack](https://orbstack.dev)
+or Docker Desktop Linux VM; the nightly is a Linux binary.
 
-Prefer no typing? `./demo.sh` runs a deterministic four-turn demo and prints
-the board, score, lives and frame budget.
+No browser? `./term.sh` plays the same arena in the terminal, and
+`./demo.sh` runs the deterministic headless demo.
 
-## How to play
+## Play
+
+| Key | Action |
+| --- | --- |
+| `W` / `A` / `S` / `D` or arrows | Move and face |
+| `Space` | Fire in the facing direction |
+| `E` | Propose an evolved layout |
+| `R` | Restart |
 
 You have three lives. A hit costs one life, respawns you at the start and
-gives you a short shield; the next hit during the shield is absorbed. Enemy
-rounds travel down, break bricks, stop on steel and pass through water.
-Enemy tanks close on the base column, then descend one row per turn and fire
-down that lane. Destroy all three with `f` to load the next level. A level
-starts with a different brick, steel and water layout. Clear both levels to
-win; lose the base or your last life and the run ends.
+gives you a 30-turn shield. Enemy rounds break bricks, stop on steel and pass
+over water. Enemy tanks close on the base column, descend and fire down the
+lane; a player round can clear a wall directly in front, but it cannot destroy
+your own base. Clear both levels to win; lose the base or your last life and
+the run ends.
 
-The score is 100 per enemy. `enemy-score`, `player-speed`,
-`fire-cooldown` and `enemy-cooldown` are tuning keys (see
-[Tuning](#tuning)). The HUD under the board shows tick, score, lives, level,
-enemies left, shield turns and status.
+## Evolution
 
-## What the demo prints
+Press `E` (or the Evolve layout button). The bridge asks Aura for a round:
 
-`./demo.sh` drives the arena with a fixed input script. The important lines
-are:
+1. `tank-evo:mutate` proposes three EDSL variants of the current level: move
+   a brick, add water or steel, or change a tuning key. The mutation uses
+   `evo:rng`, so the same seed proposes the same three forms.
+2. Each form is replayed by a deterministic autopilot for 80 ticks.
+3. The replay runs inside `evo:trial`, so the live arena workspace is not
+   touched. A form is `KEEP` only when the trial is feasible: the layout is
+   inside budget, the base survives, and the frame budget holds. It must also
+   match or beat the baseline fitness.
+4. A `KEEP` form becomes the next arena and the panel shows its EDSL. A
+   `ROLLBACK` keeps the current board.
 
-```
-demo=ok
-tick=4
-player-x=4
-bullets=1
-bricks=4
-enemies=3
-score=0
-lives=3
-level=1
-status=playing
-frames=4
-assertions-ok=#t
+The same round is available headless:
+
+```bash
+aura run game/evolve-demo.aura
 ```
 
-`assertions-ok=#t` means every frame passed the checks in
-`game/assert.aura`: state advances, score/lives stay in range, the frame
-budget stays under 50 ms and the visual keyframe flag is set. The board is
-printed after the counters.
+It prints the baseline fitness, one line per candidate with `KEEP` or
+`ROLLBACK`, and the winning `(level ...)` form.
 
-## How it works
+## Architecture
 
-`game/arena.aura` is the whole game. `arena:new` builds a 13×13 state with
-the player, base, bricks, steel, water, enemies, score and lives.
-`arena:step` takes that state and one input hash and returns the next state
-plus an `events` list. The order is fixed:
-
-1. tick and shield decay
-2. player movement
-3. player fire
-4. bullet movement and hits
-5. enemy patrol and fire
-6. level clear / win
-
-The other files are deliberately small:
-
-| File | Role |
+| Path | Role |
 | --- | --- |
-| `game/render.aura` | Pure state → ASCII board and HUD strings |
-| `game/input.aura` | Pure command line → arena input hash |
-| `game/play.aura` | Interactive stdin loop; no game rules |
-| `game/main.aura` | Deterministic demo used by `./demo.sh` and CI |
-| `game/assert.aura` | Per-frame acceptance checks and `game:run` |
+| `game/arena.aura` | Pure 13×13 state machine: move, fire, patrol, bullets, levels |
+| `game/level.aura` | Level EDSL compiler, validator and canonical printer |
+| `game/evolve.aura` | Mutation, autopilot, fitness and the `evo:trial` gate |
+| `game/server.aura` | Newline-JSON arena process used by the bridge |
+| `game/render.aura` | Terminal board and HUD strings |
+| `game/input.aura` | Terminal command parser |
+| `game/play.aura` | Terminal loop |
+| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/evolve` |
+| `web/` | Canvas renderer, HUD, overlay and evolution panel |
+| `tests/` | Aura golden tests |
+| `bootstrap/`, `engine/`, `sentinel/` | The original green-field seed round |
+| `play.sh` | Install Aura and start the HTML bridge |
+| `term.sh` | Install Aura and play the terminal board |
+| `demo.sh`, `check.sh` | Headless demo and local gate |
 
-Because `arena:step` is pure and deterministic, the tests replay exact
-inputs and compare stdout with `tests/*.golden`.
+The browser sends one action per 150 ms tick. `game/server.aura` applies the
+same `arena:step` the tests use, so a replay is deterministic. The web preset
+uses `enemy-pace 4`; the headless tests and autopilot use the default pace 1.
 
 ## Tuning
 
@@ -134,20 +115,18 @@ inputs and compare stdout with `tests/*.golden`.
                    "tuning" (hash "player-speed" 2
                                   "fire-cooldown" 2
                                   "enemy-cooldown" 4
-                                  "enemy-score" 200))))
-(arena:step st (hash "move" "up"))
+                                  "enemy-score" 200
+                                  "enemy-pace" 1))))
+(arena:step st (hash "face" "up" "fire" #t))
 ```
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `player-speed` | 1 | Grid steps per move input |
-| `fire-cooldown` | 3 | Turns before the player can fire again |
-| `enemy-cooldown` | 6 | Turns after an enemy shot before it can fire again |
+| `fire-cooldown` | 3 | Ticks before the player can fire again |
+| `enemy-cooldown` | 6 | Enemy ticks after a shot before it can fire again |
 | `enemy-score` | 100 | Points for destroying one enemy |
-
-`seed` is stored in the state for reproducibility. The current patrol is
-deterministic and does not use randomness, so the same inputs always produce
-the same board.
+| `enemy-pace` | 1 | Ticks between enemy actions (web uses 4) |
 
 ## Checks
 
@@ -155,47 +134,31 @@ the same board.
 ./check.sh
 ```
 
-That runs the baseline pin check, the five golden test files, the demo and one
-scripted play turn. To run Aura directly:
+That runs the baseline pin, the golden tests, the demo and one scripted play
+turn. To run Aura directly:
 
 ```bash
 aura test
 aura test --update   # rewrite tests/*.golden after an intentional change
+aura run game/evolve-demo.aura
 ```
 
 | Test | Covers |
 | --- | --- |
-| `tests/game_test.aura` | Movement, fire, bricks/steel/water, base loss, enemy kill, level clear, score/lives, enemy patrol and fire, shield, last life |
+| `tests/game_test.aura` | Movement, fire, bricks/steel/water, base loss, enemy kill, level clear, score/lives, patrol, shield, last life |
 | `tests/render_test.aura` | Board, HUD and legend |
 | `tests/input_test.aura` | Command aliases, wait and quit |
-| `tests/seed_test.aura` | Bootstrap seed round, sentinel refusals and guarded PR plan |
+| `tests/edsl_test.aura` | EDSL compile, round-trip and refusal cases |
+| `tests/evolve_test.aura` | Autopilot win, trial verdict, deterministic evolve round |
+| `tests/seed_test.aura` | Bootstrap seed round and sentinel refusals |
 | `tests/smoke_test.aura` | One-line runtime smoke |
-
-`./check.sh` runs the same commands locally; `aura test` also works on its
-own.
-
-## Layout
-
-```
-game/       arena, renderer, input parser, interactive loop, demo, assertions
-tests/      Aura golden tests and `.golden` stdout files
-bootstrap/  one seed round without the conductor
-engine/     seed candidates, fiber rehearsal, guarded PR plan
-sentinel/   frozen sentinel plane
-scripts/    Aura installer and baseline drift checker
-docs/       bootstrap principles and seed notes
-aura.toml   entry, preset, pinned nightly and aura-ci digest
-baseline/   the shared orchestra baseline
-play.sh     install Aura and start the board
-demo.sh     install Aura and run the demo
-check.sh    local gate (baseline + tests + demo + play smoke)
-```
 
 ## CI and the Aura pin
 
 `.github/workflows/ci.yml` runs in the pinned
 `ghcr.io/cybrid-systems/aura-ci` image, installs the nightly through
-`scripts/install-aura.sh` (archive sha256 checked), then runs the same checks.
+`scripts/install-aura.sh` (archive sha256 checked), then runs the tests,
+demo, interactive smoke and the evolution demo.
 `python3 scripts/check-baseline.py --self` fails closed if `aura.toml`,
 `baseline/aura-baseline.json` or the workflow image reference drift.
 
@@ -205,7 +168,7 @@ move tags or releases from this repo.
 
 ## Bootstrap seed
 
-The repository also owns the green-field seed that generated it:
+The repository still owns the green-field seed that generated it:
 `aura run bootstrap/run.aura` runs one in-process round, forks candidates
 from one state, rehearses them in fibers, picks a winner and emits a guarded
 PR plan. The sentinel plane is frozen and cannot be named by the evolvable
@@ -216,9 +179,9 @@ genome. See [docs/principles.md](docs/principles.md) and
 
 - `aura: command not found` — run `./play.sh`, or set
   `AURA_BIN=/path/to/aura`.
+- The page says the bridge is offline — start `./play.sh` again and watch its
+  printout; a port conflict moves the URL to the next free port.
 - `unsupported architecture` — the nightly ships Linux x86_64 and arm64. Use
   a Linux VM or OrbStack on macOS.
-- The board waits for input — it reads one line per turn; type `q` and Enter
-  to leave.
 - A test diff after changing the arena — run `aura test --update` and review
   the golden change.

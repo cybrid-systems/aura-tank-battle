@@ -19,5 +19,9 @@ jobs:
         run: aura run game/main.aura
       - name: Interactive smoke
         run: printf 'd\nf\nq\n' | aura run game/play.aura
+      - name: Evolution demo
+        run: aura run game/evolve-demo.aura
+      - name: Bridge smoke
+        run: printf '{"cmd":"ping"}\n' | aura run game/server.aura | grep -q '"pong"'
       - name: Bootstrap seed round
         run: aura run bootstrap/run.aura

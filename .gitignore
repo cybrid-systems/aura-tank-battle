@@ -1,4 +1,5 @@
 out/
 .deps/
+.aura/
 __pycache__/
 *.pyc

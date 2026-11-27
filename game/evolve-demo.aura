@@ -1,0 +1,28 @@
+;; Show one EDSL evolution round: a baseline level, three mutated forms,
+;; each replayed by the same autopilot through evo:trial, and the KEEP form.
+(require "std/string")
+(require "std/list")
+(require "game/level")
+(require "game/evolve")
+
+(define spec (edsl:compile (edsl:default)))
+(define round (tank-evo:evolve spec 0))
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+
+(line "baseline" (hash-ref (hash-ref round "baseline") "fitness"))
+(for-each
+  (lambda (c)
+    (display "candidate=")
+    (display (hash-ref c "slot"))
+    (display " verdict=")
+    (display (hash-ref c "verdict"))
+    (display " fitness=")
+    (display (hash-ref c "fitness"))
+    (newline)
+    (display "form=")
+    (display (hash-ref c "form"))
+    (newline))
+  (hash-ref round "candidates" '()))
+(line "winner" (hash-ref round "verdict"))
+(line "winner-form" (hash-ref round "winner" "none"))

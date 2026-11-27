@@ -44,8 +44,9 @@
 (line "brick-left" (length (hash-ref (hash-ref brick-run "state") "bricks")))
 
 (define steel-before
-  (with (with (base-state) "player" (hash "x" 5 "y" 11 "dir" "up"))
-        "steel" (list (hash "x" 5 "y" 9))))
+  (with (with (with (base-state) "player" (hash "x" 5 "y" 11 "dir" "up"))
+              "bricks" '())
+        "steel" (list (hash "x" 5 "y" 10))))
 (define steel-run
   (game:run steel-before arena:step (list (hash "fire" #t))
             (append invariants (list "bullet-steel"))))
@@ -71,8 +72,9 @@
 (line "base-status" (hash-ref (hash-ref base-run "state") "status"))
 
 (define enemy-before
-  (with (with (arena:new (hash "seed" 42 "players" 1 "levels" 1))
-              "player" (hash "x" 5 "y" 11 "dir" "up"))
+  (with (with (with (arena:new (hash "seed" 42 "players" 1 "levels" 1))
+                    "player" (hash "x" 5 "y" 11 "dir" "up"))
+              "bricks" '())
         "enemies" (list (hash "x" 5 "y" 9))))
 (define enemy-run
   (game:run enemy-before arena:step (list (hash "fire" #t))
