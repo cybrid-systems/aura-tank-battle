@@ -160,22 +160,20 @@ const server = http.createServer(async (req, res) => {
   send(res, 405, "method not allowed", "text/plain; charset=utf-8");
 });
 
-function listen(port, attempts = 0) {
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`Aura Tank Battle → http://127.0.0.1:${port}`);
-  });
-  server.on("error", (err) => {
-    if (err.code === "EADDRINUSE" && attempts < 20) {
-      listen(port + 1, attempts + 1);
-    } else {
-      console.error(err);
-      child.kill();
-      process.exit(1);
-    }
-  });
-}
-
-listen(basePort);
+let port = basePort;
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE" && port - basePort < 20) {
+    port += 1;
+    server.listen(port, "127.0.0.1");
+  } else {
+    console.error(err);
+    child.kill();
+    process.exit(1);
+  }
+});
+server.listen(port, "127.0.0.1", () => {
+  console.log(`Aura Tank Battle → http://127.0.0.1:${port}`);
+});
 
 for (const sig of ["SIGINT", "SIGTERM"]) {
   process.on(sig, () => {
