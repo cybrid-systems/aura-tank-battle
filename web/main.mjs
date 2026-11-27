@@ -41,6 +41,8 @@ let shake = 0;
 let lastFrame = 0;
 let themes = [];
 let buddy = { name: "小光", level: 1 };
+let activeVoice = null;
+let voiceKeyHeld = false;
 
 const keys = new Set();
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -467,7 +469,15 @@ async function newGame() {
   }
 }
 
+function cancelVoice() {
+  if (activeVoice) {
+    activeVoice.cancel();
+    activeVoice = null;
+  }
+}
+
 function sheet(title, text, build) {
+  cancelVoice();
   overlay.innerHTML = "";
   const box = document.createElement("div");
   box.className = "sheet";
@@ -541,6 +551,7 @@ function themeList() {
 }
 
 function resumeGame() {
+  cancelVoice();
   overlay.classList.remove("open");
   if (state && state.status === "playing") {
     paused = false;
@@ -555,63 +566,102 @@ function voicePanel() {
   wrap.className = "voice-box";
   const mic = document.createElement("button");
   mic.className = "mic";
-  mic.textContent = "🎤 点我说话";
+  mic.textContent = "按住说话，松开发送";
   const status = document.createElement("div");
   status.className = "voice-status";
-  status.textContent = "说一个愿望，比如「我想要会下雨的太空世界」。";
+  status.textContent = "按住话筒或 V 键说话，松手就许愿。比如「我想要会下雨的太空世界」。";
   const heard = document.createElement("div");
   heard.className = "voice-heard";
-  const send = document.createElement("button");
-  send.className = "primary voice-send";
-  send.textContent = "让 Aura 实现这个愿望";
-  send.style.display = "none";
-  let transcript = "";
-  send.addEventListener("click", () => {
-    if (transcript) wishText(transcript);
-  });
 
+  let transcript = "";
+  let rec = null;
+  let wantsSend = false;
   const Input = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (Input) {
-    let rec = null;
-    mic.addEventListener("click", () => {
-      if (rec) {
-        try { rec.stop(); } catch { /* already stopped */ }
-        rec = null;
+
+  const paint = (on) => {
+    mic.classList.toggle("listening", on);
+    mic.textContent = on ? "正在听……松开发送" : "按住说话，松开发送";
+  };
+
+  const start = () => {
+    if (rec) return;
+    if (!Input) {
+      status.textContent = "这个浏览器不支持语音，直接打字也可以。";
+      return;
+    }
+    transcript = "";
+    wantsSend = false;
+    heard.textContent = "";
+    status.textContent = "小光在听……";
+    paint(true);
+    rec = new Input();
+    rec.lang = "zh-CN";
+    rec.continuous = false;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+    rec.onresult = (event) => {
+      let text = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        text += event.results[i][0].transcript;
       }
-      transcript = "";
-      heard.textContent = "";
-      send.style.display = "none";
-      status.textContent = "小光在听……";
-      mic.textContent = "🎤 正在听";
-      rec = new Input();
-      rec.lang = "zh-CN";
-      rec.continuous = false;
-      rec.interimResults = true;
-      rec.maxAlternatives = 1;
-      rec.onresult = (event) => {
-        let text = "";
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          text += event.results[i][0].transcript;
-        }
-        transcript = text.trim();
-        heard.textContent = transcript ? `「${transcript}」` : "";
-        if (event.results[event.results.length - 1].isFinal) {
-          status.textContent = "Aura 听到了：";
-          send.style.display = "inline-flex";
-          mic.textContent = "🎤 再听一次";
-        }
-      };
-      rec.onerror = () => {
-        status.textContent = "没听清，再试一次，或者直接打字。";
-        mic.textContent = "🎤 再听一次";
-      };
-      rec.onend = () => {
-        if (!transcript) status.textContent = "没听清，再试一次，或者直接打字。";
-        mic.textContent = "🎤 再听一次";
-        rec = null;
-      };
-      try { rec.start(); } catch { status.textContent = "麦克风被挡住了，直接打字也可以。"; }
+      transcript = text.trim();
+      heard.textContent = transcript ? `「${transcript}」` : "";
+      if (event.results[event.results.length - 1].isFinal) {
+        status.textContent = "听到了，松手就发送。";
+      }
+    };
+    rec.onerror = () => {
+      status.textContent = "没听清，再试一次，或者直接打字。";
+      paint(false);
+    };
+    rec.onend = () => {
+      rec = null;
+      paint(false);
+      if (wantsSend) {
+        wantsSend = false;
+        if (transcript) wishText(transcript);
+        else status.textContent = "没听清，再试一次，或者直接打字。";
+      }
+    };
+    try {
+      rec.start();
+    } catch {
+      rec = null;
+      paint(false);
+      status.textContent = "麦克风被挡住了，直接打字也可以。";
+    }
+  };
+
+  const finish = () => {
+    if (rec) {
+      wantsSend = true;
+      try { rec.stop(); } catch { /* onend handles the send */ }
+      return;
+    }
+    if (transcript) wishText(transcript);
+  };
+
+  const cancel = () => {
+    wantsSend = false;
+    if (rec) {
+      try { rec.onend = null; rec.stop(); } catch { /* already stopped */ }
+      rec = null;
+    }
+    paint(false);
+  };
+
+  if (Input) {
+    mic.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      try { mic.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      start();
     });
+    mic.addEventListener("pointerup", (e) => {
+      e.preventDefault();
+      finish();
+    });
+    mic.addEventListener("pointercancel", finish);
+    mic.addEventListener("contextmenu", (e) => e.preventDefault());
   } else {
     mic.style.display = "none";
     status.textContent = "这个浏览器不支持语音，直接打字也可以。";
@@ -635,8 +685,8 @@ function voicePanel() {
     if (e.key === "Enter") submit();
   });
   row.append(input, go);
-  wrap.append(mic, status, heard, send, row);
-  return wrap;
+  wrap.append(mic, status, heard, row);
+  return { start, finish, cancel };
 }
 
 async function wishText(text) {
@@ -657,12 +707,15 @@ async function wishText(text) {
   }
 }
 
-function openWish() {
+function openWish(autoVoice = false) {
   if (busy) return;
   stopLoop();
   paused = true;
-  sheet("想要什么世界？", "按一下话筒说愿望，或选一个贴纸。Aura 会搭三个小世界，先自己试玩。", (box) => {
-    box.append(voicePanel());
+  let panel = null;
+  sheet("想要什么世界？", "按住话筒或 V 键说话，松手就发送；也可以选一个贴纸。", (box) => {
+    panel = voicePanel();
+    activeVoice = panel;
+    box.append(panel);
     const grid = document.createElement("div");
     grid.className = "theme-grid";
     for (const t of themeList()) {
@@ -683,6 +736,7 @@ function openWish() {
     actions.append(button("先不换", false, () => resumeGame()));
     box.append(actions);
   });
+  if (autoVoice && panel) panel.start();
 }
 
 async function proposeWish(theme) {
@@ -900,8 +954,21 @@ if (fireButton) {
   fireButton.addEventListener("contextmenu", (e) => e.preventDefault());
 }
 
+function isTypingTarget(e) {
+  const t = e.target;
+  return Boolean(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA"));
+}
+
 window.addEventListener("keydown", (e) => {
   const k = e.key.toLowerCase();
+  if (isTypingTarget(e)) return;
+  if (k === "v" && !e.repeat) {
+    e.preventDefault();
+    voiceKeyHeld = true;
+    if (activeVoice) activeVoice.start();
+    else openWish(true);
+    return;
+  }
   if (DIR_KEYS[k]) {
     lastDir = DIR_KEYS[k];
     keys.add(lastDir);
@@ -924,6 +991,11 @@ window.addEventListener("keydown", (e) => {
 
 window.addEventListener("keyup", (e) => {
   const k = e.key.toLowerCase();
+  if (k === "v" && voiceKeyHeld) {
+    voiceKeyHeld = false;
+    if (activeVoice) activeVoice.finish();
+    return;
+  }
   if (DIR_KEYS[k]) keys.delete(DIR_KEYS[k]);
   if (k === " ") keys.delete("fire");
 });

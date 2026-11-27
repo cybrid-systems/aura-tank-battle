@@ -38,6 +38,7 @@ Already have Aura? `AURA_BIN=/path/to/aura ./play.sh`. Pin a release with
 `AURA_VERSION=v0.3.4 ./play.sh`. If the port is taken, the bridge prints the
 next free one.
 
+Hold the microphone button (or the `V` key) and speak; release to send.
 Voice wishes use the browser's speech recognition (Chrome/Edge; Safari uses
 its own). The bridge reads a DeepSeek key from `LLM_API_KEY` or
 `DEEPSEEK_KEY_FILE` (default `~/code/keys/deepseek`), starts the arena with
@@ -57,6 +58,7 @@ No browser? `./term.sh` plays the same arena in the terminal, and
 | `W` / `A` / `S` / `D` or arrows | Move and face |
 | `Space` | Fire in the facing direction |
 | `E` | Wish for a new world |
+| `V` (hold) | Talk a wish; release to send |
 | `R` | Restart |
 
 You have three lives. A hit costs one life, respawns you at the start and
@@ -68,8 +70,9 @@ the run ends.
 
 ## 许个愿 (the kid loop)
 
-Press **许个愿** (or `E`), then tap the microphone and say something
-like 「我想要会下雨的太空世界」, type a wish, or pick a sticker: 🍭 糖果世界,
+Press **许个愿** (or `E`), then hold the microphone (or hold `V`) and say
+something like 「我想要会下雨的太空世界」; release to send. You can also type
+a wish or pick a sticker: 🍭 糖果世界,
 🦕 恐龙乐园, 🚀 太空基地, 🐠 海底泡泡, or 🌈 彩虹云朵. With a key, the LLM
 turns the sentence into a theme plus a few water/brick cells; without one,
 the local keyword map picks the closest theme. Aura then proposes three small
