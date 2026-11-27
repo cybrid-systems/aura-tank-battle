@@ -285,6 +285,133 @@ code { color: #a5f3fc; font-family: ui-monospace, Menlo, monospace; font-size: 0
 .sheet .row { grid-template-columns: 34px 1fr auto; }
 .sheet .form { max-height: 160px; overflow: auto; }
 
+.buddy-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 9px;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 999px;
+  background: rgba(7, 14, 26, 0.78);
+  color: #bae6fd;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(6px);
+}
+.buddy-badge .orb {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #a7f3d0, #38bdf8 60%, #6366f1);
+  box-shadow: 0 0 14px rgba(56, 189, 248, 0.6);
+  animation: float 2.6s ease-in-out infinite;
+}
+@keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+
+.buddy-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%) translateY(8px);
+  max-width: calc(100% - 32px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  background: rgba(6, 22, 20, 0.88);
+  color: #bbf7d0;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.buddy-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.dev-panel { display: none; }
+body.dev .dev-panel { display: block; }
+.dev-actions { margin: 10px 0 14px; }
+
+.parent-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(7, 12, 21, 0.55);
+  font-size: 14px;
+  cursor: pointer;
+}
+.parent-toggle input { width: 20px; height: 20px; accent-color: var(--cyan); }
+
+button.small { padding: 8px 12px; font-size: 13px; }
+
+.buddy-hero {
+  width: 92px; height: 92px;
+  margin: 4px auto 16px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #a7f3d0, #38bdf8 55%, #6366f1);
+  box-shadow: 0 0 40px rgba(56, 189, 248, 0.35);
+  display: grid;
+  place-items: center;
+  font-size: 38px;
+  animation: float 2.8s ease-in-out infinite;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+.theme-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(17, 28, 48, 0.9);
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+}
+.theme-chip .emoji { font-size: 24px; }
+.theme-chip:hover { border-color: var(--cyan); background: rgba(56, 189, 248, 0.12); }
+
+.wish-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 10px 0 4px;
+}
+.wish-card {
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(7, 12, 21, 0.72);
+  color: var(--text);
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+.wish-card canvas { width: 100%; height: auto; border-radius: 9px; display: block; }
+.wish-card .wish-name { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; }
+.wish-card .wish-badge { font-size: 11px; color: var(--green); }
+.wish-card.off { opacity: 0.45; }
+.wish-card.off .wish-badge { color: var(--red); }
+.wish-card:not(.off):hover { border-color: var(--green); transform: translateY(-2px); }
+.wish-card .spark { color: var(--amber); }
+
+.wish-actions { margin-top: 14px; }
+
+@media (max-width: 720px) {
+  .wish-grid { grid-template-columns: 1fr; }
+  .wish-card canvas { max-width: 180px; margin: 0 auto; }
+}
+
 @media (max-width: 720px) {
   .app { width: min(100% - 20px, 560px); margin-top: 14px; }
   .hud { grid-template-columns: repeat(3, 1fr); }

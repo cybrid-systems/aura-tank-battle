@@ -1,9 +1,10 @@
 # Aura Tank Battle
 
-A browser tank battle with a twist: the arena is not a fixed level. Each
-layout is an [Aura](https://github.com/cybrid-systems/aura) EDSL form, and an
-`evo:trial` gate decides whether a mutated form is kept or rolled back before
-it reaches the board.
+A browser tank battle for kids and their grown-ups: the arena is not a fixed
+level. Each layout is an [Aura](https://github.com/cybrid-systems/aura) EDSL
+form, and an `evo:trial` gate decides whether a wish becomes a new world
+before it reaches the board. The child sees stickers, stars and 小光; the
+grown-up can open the EDSL corner.
 
 ```
 (level
@@ -47,7 +48,7 @@ No browser? `./term.sh` plays the same arena in the terminal, and
 | --- | --- |
 | `W` / `A` / `S` / `D` or arrows | Move and face |
 | `Space` | Fire in the facing direction |
-| `E` | Propose an evolved layout |
+| `E` | Wish for a new world |
 | `R` | Restart |
 
 You have three lives. A hit costs one life, respawns you at the start and
@@ -57,9 +58,23 @@ lane; a player round can clear a wall directly in front, but it cannot destroy
 your own base. Clear both levels to win; lose the base or your last life and
 the run ends.
 
-## Evolution
+## 许个愿 (the kid loop)
 
-Press `E` (or the Evolve layout button). The bridge asks Aura for a round:
+Press **许个愿** (or `E`) and pick a sticker: 🍭 糖果世界, 🦕 恐龙乐园,
+🚀 太空基地, 🐠 海底泡泡, or 🌈 彩虹云朵. Aura proposes three small worlds,
+plays each one itself, and shows the ones that passed as mini boards. The
+child taps a board and the new world starts. 小光, the companion orb, levels
+up with every kept wish.
+
+A world that fails the trial gets a "💨 再试试" card and is not offered. The
+child never sees a form, a fitness number, or a scary Game Over; the grown-up
+can open **家长** and turn on the developer panel to see the same
+`(level ...)` forms and KEEP/ROLLBACK records.
+
+## Under the hood: EDSL evolution
+
+The developer panel and the wish cards use the same gate. The bridge asks
+Aura for a round:
 
 1. `tank-evo:mutate` proposes three EDSL variants of the current level: move
    a brick, add water or steel, or change a tuning key. The mutation uses
@@ -88,11 +103,12 @@ It prints the baseline fitness, one line per candidate with `KEEP` or
 | `game/arena.aura` | Pure 13×13 state machine: move, fire, patrol, bullets, levels |
 | `game/level.aura` | Level EDSL compiler, validator and canonical printer |
 | `game/evolve.aura` | Mutation, autopilot, fitness and the `evo:trial` gate |
+| `game/wish.aura` | Kid sticker themes and the three-world wish round |
 | `game/server.aura` | Newline-JSON arena process used by the bridge |
 | `game/render.aura` | Terminal board and HUD strings |
 | `game/input.aura` | Terminal command parser |
 | `game/play.aura` | Terminal loop |
-| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/evolve` |
+| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/wish`, `/api/keep`, `/api/evolve` |
 | `web/` | Canvas renderer, HUD, overlay and evolution panel |
 | `tests/` | Aura golden tests |
 | `bootstrap/`, `engine/`, `sentinel/` | The original green-field seed round |
@@ -150,6 +166,7 @@ aura run game/evolve-demo.aura
 | `tests/input_test.aura` | Command aliases, wait and quit |
 | `tests/edsl_test.aura` | EDSL compile, round-trip and refusal cases |
 | `tests/evolve_test.aura` | Autopilot win, trial verdict, deterministic evolve round |
+| `tests/wish_test.aura` | Theme wish round, three KEEP candidates, autopilot win |
 | `tests/seed_test.aura` | Bootstrap seed round and sentinel refusals |
 | `tests/smoke_test.aura` | One-line runtime smoke |
 

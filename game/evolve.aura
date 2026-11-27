@@ -206,8 +206,9 @@
           (loop (+ i 1))
           (hash "x" x "y" y))))))
 
-(define (tank-evo:mutate spec seed slot)
+(define (tank-evo:mutate spec seed slot . name-arg)
   (let* ((rng (evo:rng seed 0 slot))
+         (name (if (pair? name-arg) (car name-arg) "evolved"))
          (op (evo:rng-int! rng 0 5))
          (bricks (t-get spec "bricks" '()))
          (steel (t-get spec "steel" '()))
@@ -231,7 +232,7 @@
                                              (if (= (evo:rng-int! rng 0 2) 0) 1 -1)))))
                 (t-with spec "tuning" t2)))
              (else spec))))
-    (edsl:compile (edsl:form-of (t-with next "name" "evolved")))))
+    (edsl:compile (edsl:form-of (t-with next "name" name)))))
 
 (define (tank-evo:candidates spec seed)
   (map (lambda (slot) (tank-evo:trial (tank-evo:mutate spec seed slot) seed slot))

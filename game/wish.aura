@@ -1,0 +1,97 @@
+;; Kid-facing wish boxes. A theme is a starting EDSL form; each wish asks
+;; the same evo:trial gate as the developer panel, and only a fair family is
+;; offered back to the child.
+(require "std/string")
+(require "std/list")
+(require "game/level")
+(require "game/evolve")
+
+(export wish:themes wish:base wish:propose wish:wire wish:help)
+
+(define (wish:help)
+  "Wish: (wish:themes) -> sticker list; (wish:propose theme seed) -> three trial candidates.")
+
+(define (wish-shield)
+  (list (list 5 10) (list 6 10) (list 7 10) (list 5 11) (list 7 11)))
+
+(define (wish-pairs xs)
+  (map (lambda (p) (list (car p) (car (cdr p)))) xs))
+
+(define (wish-form name bricks steel water cooldown)
+  (list 'level
+        (list 'name (string->symbol name))
+        (cons 'bricks (wish-pairs bricks))
+        (cons 'steel (wish-pairs steel))
+        (cons 'water (wish-pairs water))
+        (list 'tuning
+              (list 'player-speed 1)
+              (list 'fire-cooldown 3)
+              (list 'enemy-cooldown cooldown)
+              (list 'enemy-score 100))))
+
+(define (wish-data id)
+  (cond
+    ((equal? id "candy")
+     (hash "label" "糖果世界" "emoji" "🍭" "bricks" (append (wish-shield) (list (list 3 8) (list 9 8)))
+           "steel" (list (list 2 5)) "water" (list (list 4 10) (list 8 10))
+           "cooldown" 8))
+    ((equal? id "dino")
+     (hash "label" "恐龙乐园" "emoji" "🦕" "bricks" (append (wish-shield) (list (list 2 7) (list 10 7)))
+           "steel" (list (list 3 4) (list 9 4)) "water" (list (list 4 6) (list 8 6))
+           "cooldown" 7))
+    ((equal? id "space")
+     (hash "label" "太空基地" "emoji" "🚀" "bricks" (append (wish-shield) (list (list 4 5) (list 8 5)))
+           "steel" (list (list 2 7) (list 10 7)) "water" '()
+           "cooldown" 9))
+    ((equal? id "ocean")
+     (hash "label" "海底泡泡" "emoji" "🐠" "bricks" (append (wish-shield) (list (list 4 9) (list 8 9)))
+           "steel" (list (list 2 5) (list 10 5)) "water" (list (list 5 7) (list 7 7))
+           "cooldown" 7))
+    ((equal? id "rainbow")
+     (hash "label" "彩虹云朵" "emoji" "🌈" "bricks" (append (wish-shield) (list (list 3 6) (list 9 6)))
+           "steel" (list (list 2 9) (list 10 9)) "water" (list (list 4 7) (list 8 7))
+           "cooldown" 6))
+    (else #f)))
+
+(define (wish:themes)
+  (map (lambda (id)
+         (let ((d (wish-data id)))
+           (hash "id" id "label" (hash-ref d "label") "emoji" (hash-ref d "emoji"))))
+       (list "candy" "dino" "space" "ocean" "rainbow")))
+
+(define (wish:base id)
+  (let ((d (wish-data id)))
+    (if (not (hash? d))
+      (hash "ok" #f "why" "unknown-theme")
+      (edsl:compile (wish-form id (hash-ref d "bricks")
+                               (hash-ref d "steel")
+                               (hash-ref d "water")
+                               (hash-ref d "cooldown"))))))
+
+(define (wish-trials specs seed)
+  (let loop ((xs specs) (slot 0) (acc '()))
+    (if (not (pair? xs))
+      (reverse acc)
+      (loop (cdr xs) (+ slot 1)
+            (cons (tank-evo:trial (car xs) (+ seed slot) slot) acc)))))
+
+(define (wish:propose id seed)
+  (let* ((base (wish:base id))
+         (ok (and (hash? base) (hash-ref base "ok" #f))))
+    (if (not ok)
+      (hash "ok" #f "why" (if (hash? base) (hash-ref base "why" "bad-theme") "unknown-theme"))
+      (let ((specs (list base
+                         (tank-evo:mutate base (+ seed 1) 1 id)
+                         (tank-evo:mutate base (+ seed 2) 2 id))))
+        (hash "ok" #t "theme" id "base" base
+              "candidates" (wish-trials specs seed))))))
+
+; Compact wire hash for the browser's mini preview.
+(define (wish:wire spec)
+  (if (not (hash? spec))
+    (hash)
+    (hash "name" (hash-ref spec "name" "custom")
+          "bricks" (hash-ref spec "bricks" '())
+          "steel" (hash-ref spec "steel" '())
+          "water" (hash-ref spec "water" '())
+          "tuning" (hash-ref spec "tuning" (hash)))))

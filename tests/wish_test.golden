@@ -1,0 +1,11 @@
+themes=5
+first=candy
+first-label=糖果世界
+candy-ok=#t
+candy-name=candy
+candy-status=won
+candy-score=300
+round-ok=#t
+round-count=3
+verdicts=(KEEP KEEP KEEP)
+names=(dino dino dino)

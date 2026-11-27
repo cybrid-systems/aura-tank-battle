@@ -1,0 +1,30 @@
+;; Kid wish boxes compile and pass the same evo:trial gate.
+(require "std/string")
+(require "std/list")
+(require "game/wish")
+(require "game/evolve")
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+
+(define themes (wish:themes))
+(line "themes" (length themes))
+(line "first" (hash-ref (car themes) "id"))
+(line "first-label" (hash-ref (car themes) "label"))
+
+(define base (wish:base "candy"))
+(line "candy-ok" (hash-ref base "ok" #f))
+(line "candy-name" (hash-ref base "name" ""))
+(define play (tank-evo:play base 80))
+(line "candy-status" (hash-ref (hash-ref play "state") "status"))
+(line "candy-score" (hash-ref (hash-ref play "state") "score"))
+
+(define round (wish:propose "dino" 99))
+(line "round-ok" (hash-ref round "ok" #f))
+(line "round-count" (length (hash-ref round "candidates" '())))
+(line "verdicts"
+      (map (lambda (c) (hash-ref c "verdict"))
+           (hash-ref round "candidates" '())))
+(line "names"
+      (map (lambda (c)
+             (hash-ref (wish:wire (hash-ref c "spec" (hash))) "name" ""))
+           (hash-ref round "candidates" '())))

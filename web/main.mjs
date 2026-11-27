@@ -11,7 +11,12 @@ const hud = {
 };
 const evoLog = document.getElementById("evo-log");
 const evolveBtn = document.getElementById("evolve");
+const wishBtn = document.getElementById("wish");
 const restartBtn = document.getElementById("restart");
+const parentBtn = document.getElementById("parent");
+const devPanel = document.getElementById("dev-panel");
+const buddyName = document.getElementById("buddy-name");
+const buddyToast = document.getElementById("buddy-toast");
 
 const TILE = 60;
 const N = 13;
@@ -34,6 +39,8 @@ let tickMs = 150;
 let effects = [];
 let shake = 0;
 let lastFrame = 0;
+let themes = [];
+let buddy = { name: "小光", level: 1 };
 
 const keys = new Set();
 const arr = (v) => (Array.isArray(v) ? v : []);
@@ -89,7 +96,25 @@ function burst(x, y, color, count = 12, power = 1) {
   }
 }
 
-function absorb(next) {
+function setBuddy(next) {
+  if (!next) return;
+  buddy = { name: next.name || "小光", level: Number(next.level) || 1 };
+  buddyName.textContent = `${buddy.name} Lv.${buddy.level}`;
+}
+
+let toastTimer = 0;
+function buddySay(text) {
+  buddyToast.textContent = text;
+  buddyToast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => buddyToast.classList.remove("show"), 2600);
+}
+
+function absorb(next, meta) {
+  if (meta) {
+    if (meta.buddy) setBuddy(meta.buddy);
+    if (Array.isArray(meta.themes) && meta.themes.length) themes = meta.themes;
+  }
   if (prevState) {
     const nb = new Set(arr(next.bricks).map(key));
     for (const t of arr(prevState.bricks)) if (!nb.has(key(t))) burst(t.x, t.y, "#f59e0b", 8, 0.7);
@@ -122,7 +147,10 @@ function updateHud() {
   hud.level.textContent = `${state.level ?? 1} / ${state.levels ?? 2}`;
   hud.enemies.textContent = String(arr(state.enemies).length);
   hud.shield.textContent = String(state.shield ?? 0);
-  hud.levelName.textContent = state.level_name || "arena";
+  const theme = themeList().find((t) => t.id === state.level_name);
+  hud.levelName.textContent = theme
+    ? `${theme.emoji || ""} ${theme.label || theme.id}`.trim()
+    : (state.level_name || "小世界");
 }
 
 function roundRect(x, y, w, h, r) {
@@ -290,6 +318,40 @@ function drawBullet(x, y, t) {
   ctx.restore();
 }
 
+function drawBuddy() {
+  if (!state || !state.player) return;
+  const t = cellPx();
+  const p = cellCenter(state.player.x, state.player.y);
+  const bx = clamp(p.x + t * 0.52, t * 0.3, N * t - t * 0.3);
+  const by = clamp(p.y - t * 0.44, t * 0.3, N * t - t * 0.3);
+  const r = t * 0.17;
+  const colors = ["#a7f3d0", "#fde68a", "#fbcfe8", "#bfdbfe", "#ddd6fe"];
+  const color = colors[(buddy.level - 1) % colors.length];
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 16;
+  const g = ctx.createRadialGradient(bx - r * 0.4, by - r * 0.4, r * 0.1, bx, by, r);
+  g.addColorStop(0, "#ffffff");
+  g.addColorStop(0.45, color);
+  g.addColorStop(1, "#6366f1");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(bx, by, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#0b1220";
+  ctx.beginPath();
+  ctx.arc(bx - r * 0.32, by - r * 0.08, r * 0.12, 0, Math.PI * 2);
+  ctx.arc(bx + r * 0.32, by - r * 0.08, r * 0.12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0b1220";
+  ctx.lineWidth = Math.max(1, r * 0.12);
+  ctx.beginPath();
+  ctx.arc(bx, by + r * 0.18, r * 0.3, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function draw(now) {
   const t = cellPx();
   const size = N * t;
@@ -310,6 +372,7 @@ function draw(now) {
   drawBase(t);
   for (const e of arr(state.enemies)) drawTank(e.x, e.y, "down", false, t);
   if (state.player) drawTank(state.player.x, state.player.y, state.player.dir, true, t, state.shield || 0);
+  drawBuddy();
   for (const b of arr(state.bullets)) drawBullet(b.x, b.y, t);
   for (const p of effects) {
     const a = clamp(p.life / p.max, 0, 1);
@@ -356,7 +419,7 @@ async function tickOnce() {
   busy = true;
   try {
     const res = await post("/api/tick", { input: inputFromKeys() });
-    absorb(res.state);
+    absorb(res.state, res);
     if (res.state.status !== "playing") {
       stopLoop();
       paused = true;
@@ -392,7 +455,7 @@ function stopLoop() {
 async function newGame() {
   try {
     const res = await post("/api/new", { seed: 42, levels: 2 });
-    absorb(res.state);
+    absorb(res.state, res);
     effects = [];
     shake = 0;
     overlay.classList.remove("open");
@@ -400,7 +463,7 @@ async function newGame() {
     paused = false;
     startLoop();
   } catch (err) {
-    showError("Could not start the arena. Is the bridge running?");
+    showError("小光找不到游戏服务器了，看看 ./play.sh 是不是还在跑。");
   }
 }
 
@@ -428,30 +491,211 @@ function button(label, primary, onClick) {
 }
 
 function showStart() {
-  sheet("Defend the line", "Move with WASD or arrows, fire with Space, and keep the B alive. The base shield is destructible: clear it to reach the lane behind it.", (box) => {
+  sheet("坦克小世界", "和小光一起守护水晶。收集星星，把捣蛋机器人变成朋友。", (box) => {
+    const hero = document.createElement("div");
+    hero.className = "buddy-hero";
+    hero.textContent = "🌟";
+    box.append(hero);
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.append(button("Deploy", true, () => newGame()));
+    actions.append(button("开始冒险", true, () => newGame()));
+    actions.append(button("先许个愿", false, () => openWish()));
     box.append(actions);
   });
 }
 
 function showEnd(won) {
   const s = state || {};
-  sheet(won ? "Sector cleared" : "Base lost", `Score ${s.score ?? 0} · level ${s.level ?? 1} · ${s.lives ?? 0} lives left.`, (box) => {
+  const title = won ? "守住啦！" : "水晶裂了……";
+  const text = won
+    ? `你收集了 ${s.score ?? 0} 颗星星，小光开心得转圈圈。`
+    : `没关系，小光把碎片捡回来了。你收集了 ${s.score ?? 0} 颗星星，再来一次？`;
+  sheet(title, text, (box) => {
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.append(button("Play again", true, () => newGame()));
-    actions.append(button("Evolve layout", false, () => evolve()));
+    actions.append(button("再来一次", true, () => newGame()));
+    actions.append(button("换个世界", false, () => openWish()));
     box.append(actions);
   });
 }
 
 function showError(msg) {
-  sheet("Bridge offline", msg, (box) => {
+  sheet("连接断开了", msg, (box) => {
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.append(button("Retry", true, () => boot()));
+    actions.append(button("再试一次", true, () => boot()));
+    box.append(actions);
+  });
+}
+
+const FALLBACK_THEMES = [
+  { id: "candy", label: "糖果世界", emoji: "🍭" },
+  { id: "dino", label: "恐龙乐园", emoji: "🦕" },
+  { id: "space", label: "太空基地", emoji: "🚀" },
+  { id: "ocean", label: "海底泡泡", emoji: "🐠" },
+  { id: "rainbow", label: "彩虹云朵", emoji: "🌈" },
+];
+
+function themeList() {
+  return themes.length ? themes : FALLBACK_THEMES;
+}
+
+function resumeGame() {
+  overlay.classList.remove("open");
+  if (state && state.status === "playing") {
+    paused = false;
+    startLoop();
+  } else if (state) {
+    showEnd(state.status === "won");
+  }
+}
+
+function openWish() {
+  if (busy) return;
+  stopLoop();
+  paused = true;
+  sheet("想要什么世界？", "选一个贴纸，Aura 会搭三个小世界，先自己试玩，再让你挑。", (box) => {
+    const grid = document.createElement("div");
+    grid.className = "theme-grid";
+    for (const t of themeList()) {
+      const b = document.createElement("button");
+      b.className = "theme-chip";
+      const emoji = document.createElement("span");
+      emoji.className = "emoji";
+      emoji.textContent = t.emoji || "✨";
+      const label = document.createElement("span");
+      label.textContent = t.label || t.id;
+      b.append(emoji, label);
+      b.addEventListener("click", () => proposeWish(t));
+      grid.append(b);
+    }
+    box.append(grid);
+    const actions = document.createElement("div");
+    actions.className = "actions wish-actions";
+    actions.append(button("先不换", false, () => resumeGame()));
+    box.append(actions);
+  });
+}
+
+async function proposeWish(theme) {
+  busy = true;
+  sheet(`${theme.emoji || "✨"} ${theme.label || theme.id}`, "Aura 正在搭世界，还会先自己试玩一下……", () => {});
+  try {
+    const seed = (Date.now() % 100000) + 1;
+    const res = await post("/api/wish", { theme: theme.id, seed });
+    if (res.type === "error") throw new Error(res.error || "wish failed");
+    showWishCards(theme, res);
+  } catch (err) {
+    showError("Aura 打了个盹，再试一次吧。");
+  } finally {
+    busy = false;
+  }
+}
+
+function drawPreview(cv, p) {
+  const size = 150;
+  cv.width = size;
+  cv.height = size;
+  const c = cv.getContext("2d");
+  const cell = size / 13;
+  c.fillStyle = "#070c15";
+  c.fillRect(0, 0, size, size);
+  c.strokeStyle = "rgba(56,189,248,0.07)";
+  for (let i = 1; i < 13; i += 1) {
+    c.beginPath();
+    c.moveTo(i * cell, 0); c.lineTo(i * cell, size);
+    c.moveTo(0, i * cell); c.lineTo(size, i * cell);
+    c.stroke();
+  }
+  const tile = (x, y, color, radius = 4) => {
+    c.fillStyle = color;
+    c.beginPath();
+    c.roundRect(x * cell + 1, y * cell + 1, cell - 2, cell - 2, radius);
+    c.fill();
+  };
+  for (const b of arr(p.bricks)) tile(b.x, b.y, "#b45309");
+  for (const s of arr(p.steel)) tile(s.x, s.y, "#64748b");
+  for (const w of arr(p.water)) tile(w.x, w.y, "#0ea5e9");
+  tile(6, 12, "#38bdf8", 6);
+  tile(4, 12, "#a7f3d0", 9);
+}
+
+function showWishCards(theme, res) {
+  const keepCount = (res.candidates || []).filter((c) => c.verdict === "KEEP").length;
+  const title = keepCount ? `${theme.emoji || "✨"} 挑一个世界` : "魔法还不够稳";
+  const text = keepCount
+    ? "绿色星星的是 Aura 试玩通过的世界，点一下就出发。"
+    : "这次的世界都还不够公平，再让 Aura 想一次？";
+  sheet(title, text, (box) => {
+    const grid = document.createElement("div");
+    grid.className = "wish-grid";
+    for (const c of res.candidates || []) {
+      const card = document.createElement("button");
+      const ok = c.verdict === "KEEP";
+      card.className = "wish-card" + (ok ? "" : " off");
+      card.disabled = !ok;
+      const cv = document.createElement("canvas");
+      drawPreview(cv, c.preview || {});
+      const name = document.createElement("div");
+      name.className = "wish-name";
+      name.textContent = `${theme.label || theme.id} · ${Number(c.slot) + 1}`;
+      const badge = document.createElement("div");
+      badge.className = "wish-badge";
+      badge.textContent = ok ? "✨ 可以玩" : "💨 再试试";
+      card.append(cv, name, badge);
+      if (ok) card.addEventListener("click", () => keepWish(c.slot));
+      grid.append(card);
+    }
+    box.append(grid);
+    const actions = document.createElement("div");
+    actions.className = "actions wish-actions";
+    actions.append(button(keepCount ? "重新许愿" : "再想一次", false, () => openWish()));
+    actions.append(button("先不换", false, () => resumeGame()));
+    box.append(actions);
+  });
+}
+
+async function keepWish(slot) {
+  if (busy) return;
+  busy = true;
+  try {
+    const res = await post("/api/keep", { slot });
+    if (res.type === "error") throw new Error(res.error || "keep failed");
+    absorb(res.state, res);
+    effects = [];
+    shake = 0;
+    overlay.classList.remove("open");
+    paused = false;
+    startLoop();
+    buddySay(`${buddy.name} 学会了新颜色！`);
+  } catch (err) {
+    showError("这个世界暂时进不来，再试一次吧。");
+  } finally {
+    busy = false;
+  }
+}
+
+function openParent() {
+  if (busy) return;
+  stopLoop();
+  paused = true;
+  sheet("家长 / 开发者角落", "孩子默认只看到贴纸和星星；EDSL、fitness、KEEP/ROLLBACK 都在这里。", (box) => {
+    const label = document.createElement("label");
+    label.className = "parent-toggle";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = document.body.classList.contains("dev");
+    cb.addEventListener("change", () => {
+      document.body.classList.toggle("dev", cb.checked);
+      if (cb.checked) devPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+    const text = document.createElement("span");
+    text.textContent = "显示开发者面板（EDSL / 进化记录）";
+    label.append(cb, text);
+    box.append(label);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(button("继续玩", true, () => resumeGame()));
     box.append(actions);
   });
 }
@@ -484,7 +728,7 @@ async function evolve() {
   sheet("Evolving layout", "Replaying three EDSL mutations through evo:trial…", () => {});
   try {
     const res = await post("/api/evolve", { seed: 42 });
-    absorb(res.state);
+    absorb(res.state, res);
     const { log, pre } = renderEvolution(res);
     sheet(res.verdict === "KEEP" ? "Layout kept" : "Proposal rolled back",
       res.verdict === "KEEP" ? "A fair form beat or matched the baseline. Deploy the new arena." : "The gate refused the proposal. The current arena is unchanged.",
@@ -517,10 +761,10 @@ async function evolve() {
 async function boot() {
   try {
     const res = await post("/api/new", { seed: 42, levels: 2 });
-    absorb(res.state);
+    absorb(res.state, res);
     showStart();
   } catch (err) {
-    showError("Start the bridge with ./play.sh, then retry.");
+    showError("先运行 ./play.sh，再点一次。");
   }
 }
 
@@ -561,7 +805,7 @@ window.addEventListener("keydown", (e) => {
   }
   if (k === "e") {
     e.preventDefault();
-    evolve();
+    openWish();
   } else if (k === "r") {
     e.preventDefault();
     newGame();
@@ -578,7 +822,9 @@ window.addEventListener("blur", () => keys.clear());
 window.addEventListener("resize", resizeCanvas);
 
 evolveBtn.addEventListener("click", evolve);
+wishBtn.addEventListener("click", openWish);
 restartBtn.addEventListener("click", newGame);
+parentBtn.addEventListener("click", openParent);
 
 resizeCanvas();
 requestAnimationFrame(frame);

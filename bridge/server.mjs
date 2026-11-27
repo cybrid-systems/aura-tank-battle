@@ -125,6 +125,14 @@ async function api(req, res, pathname) {
       send(res, 200, await call({ cmd: "evolve", seed: body.seed ?? 42 }, 120000));
       return;
     }
+    if (pathname === "/api/wish") {
+      send(res, 200, await call({ cmd: "wish", theme: body.theme || "candy", seed: body.seed ?? 1 }, 120000));
+      return;
+    }
+    if (pathname === "/api/keep") {
+      send(res, 200, await call({ cmd: "keep", slot: body.slot ?? 0 }, 60000));
+      return;
+    }
     send(res, 404, { error: "not-found" });
   } catch (err) {
     send(res, 503, { error: String(err.message || err) });

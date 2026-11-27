@@ -5,8 +5,11 @@
 (require "game/level")
 (require "game/arena")
 (require "game/evolve")
+(require "game/wish")
 
-(define *live-spec* (edsl:compile (edsl:default)))
+(define *live-spec* (wish:base "candy"))
+(define *wish* '())
+(define *buddy-level* 1)
 
 (define (s-get h k d) (if (hash? h) (hash-ref h k d) d))
 (define (s-num h k d) (let ((v (s-get h k d))) (if (number? v) v d)))
@@ -22,13 +25,54 @@
   (hash "type" "state"
         "protocol" 1
         "state" st
-        "level" (edsl:pretty (edsl:form-of *live-spec*))))
+        "level" (edsl:pretty (edsl:form-of *live-spec*))
+        "buddy" (hash "name" "小光" "level" *buddy-level*)
+        "themes" (wish:themes)))
 
 (define (candidate-msg c)
   (hash "slot" (s-get c "slot" 0)
         "verdict" (s-get c "verdict" "ROLLBACK")
         "fitness" (s-get c "fitness" 0)
         "form" (s-get c "form" "")))
+
+(define (wish-candidate-msg c)
+  (let ((spec (s-get c "spec" #f)))
+    (hash "slot" (s-get c "slot" 0)
+          "verdict" (s-get c "verdict" "ROLLBACK")
+          "fitness" (s-get c "fitness" 0)
+          "form" (s-get c "form" "")
+          "preview" (wish:wire spec))))
+
+(define (run-wish req)
+  (let* ((theme (s-get req "theme" "candy"))
+         (seed (s-num req "seed" 1))
+         (round (wish:propose theme seed)))
+    (if (not (s-get round "ok" #f))
+      (hash "type" "error" "error" (s-get round "why" "wish-failed"))
+      (begin
+        (set! *wish* (s-get round "candidates" '()))
+        (hash "type" "wish"
+              "theme" theme
+              "candidates" (map wish-candidate-msg *wish*))))))
+
+(define (wish-find slot)
+  (let loop ((xs *wish*))
+    (cond ((not (pair? xs)) #f)
+          ((= (s-get (car xs) "slot" -1) slot) (car xs))
+          (else (loop (cdr xs))))))
+
+(define (run-keep st req)
+  (let* ((slot (s-num req "slot" -1))
+         (cand (wish-find slot)))
+    (if (not (and cand (equal? (s-get cand "verdict" "") "KEEP")))
+      (hash "type" "error" "error" "wish-not-kept")
+      (let ((spec (s-get cand "spec" #f)))
+        (if (not (hash? spec))
+          (hash "type" "error" "error" "wish-no-spec")
+          (begin
+            (set! *live-spec* spec)
+            (set! *buddy-level* (+ *buddy-level* 1))
+            (state-msg (web-state req))))))))
 
 (define (run-evolve st req)
   (let* ((round (tank-evo:evolve *live-spec* (s-num req "seed" 42)))
@@ -55,6 +99,10 @@
        (state-msg (web-state req)))
       ((equal? cmd "evolve")
        (run-evolve st req))
+      ((equal? cmd "wish")
+       (run-wish req))
+      ((equal? cmd "keep")
+       (run-keep st req))
       ((equal? cmd "ping")
        (hash "type" "pong" "protocol" 1))
       (else (hash "type" "error" "error" "unknown-command")))))

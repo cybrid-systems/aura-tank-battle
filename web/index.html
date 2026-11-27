@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Aura Tank Battle</title>
+  <title>坦克小世界</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -12,60 +12,68 @@
       <div class="brand">
         <div class="mark">A</div>
         <div>
-          <h1>Aura Tank Battle</h1>
-          <p>An EDSL-evolved arena, running on Aura</p>
+          <h1>坦克小世界</h1>
+          <p>和小光一起守护水晶</p>
         </div>
       </div>
-      <div class="badge" id="level-name">courtyard</div>
+      <div class="badge" id="level-name">糖果世界</div>
     </header>
 
-    <section class="hud" aria-label="Battle status">
-      <div class="chip"><span>Score</span><strong id="score">0</strong></div>
-      <div class="chip"><span>Lives</span><strong id="lives">3</strong></div>
-      <div class="chip"><span>Level</span><strong id="level">1 / 2</strong></div>
-      <div class="chip"><span>Enemies</span><strong id="enemies">3</strong></div>
-      <div class="chip"><span>Shield</span><strong id="shield">0</strong></div>
+    <section class="hud" aria-label="冒险状态">
+      <div class="chip"><span>星星</span><strong id="score">0</strong></div>
+      <div class="chip"><span>气球</span><strong id="lives">3</strong></div>
+      <div class="chip"><span>关卡</span><strong id="level">1 / 2</strong></div>
+      <div class="chip"><span>捣蛋鬼</span><strong id="enemies">3</strong></div>
+      <div class="chip"><span>护盾</span><strong id="shield">0</strong></div>
     </section>
 
     <main class="stage">
-      <canvas id="board" width="780" height="780" aria-label="Tank battle board"></canvas>
+      <canvas id="board" width="780" height="780" aria-label="坦克战场"></canvas>
+      <div class="buddy-badge" id="buddy-badge">
+        <span class="orb"></span>
+        <span id="buddy-name">小光 Lv.1</span>
+      </div>
+      <div class="buddy-toast" id="buddy-toast"></div>
       <div id="overlay" class="overlay"></div>
     </main>
 
-    <div class="touch" aria-label="Touch controls">
+    <div class="touch" aria-label="触屏控制">
       <div class="dpad">
-        <button data-dir="up" aria-label="Move up">▲</button>
-        <button data-dir="left" aria-label="Move left">◀</button>
-        <button data-dir="down" aria-label="Move down">▼</button>
-        <button data-dir="right" aria-label="Move right">▶</button>
+        <button data-dir="up" aria-label="向上">▲</button>
+        <button data-dir="left" aria-label="向左">◀</button>
+        <button data-dir="down" aria-label="向下">▼</button>
+        <button data-dir="right" aria-label="向右">▶</button>
       </div>
-      <button data-fire class="fire" aria-label="Fire">FIRE</button>
+      <button data-fire class="fire" aria-label="发射">发射</button>
     </div>
 
     <section class="bar">
       <div class="controls">
-        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows move</span>
-        <span><kbd>Space</kbd> fire</span>
-        <span><kbd>R</kbd> restart</span>
-        <span><kbd>E</kbd> evolve</span>
+        <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 或方向键移动</span>
+        <span><kbd>空格</kbd> 发射</span>
+        <span><kbd>R</kbd> 重来</span>
       </div>
       <div class="actions">
-        <button id="evolve" class="ghost">Evolve layout</button>
-        <button id="restart" class="primary">Restart</button>
+        <button id="wish" class="primary">许个愿</button>
+        <button id="restart" class="ghost">重来</button>
+        <button id="parent" class="ghost small">家长</button>
       </div>
     </section>
 
-    <section class="panel">
+    <section id="dev-panel" class="panel dev-panel">
       <div class="panel-head">
-        <h2>EDSL evolution</h2>
+        <h2>家长 / 开发者角落</h2>
         <span class="tag">evo:trial</span>
       </div>
       <p class="muted">
-        Every proposal is a <code>(level ...)</code> form. Three mutations are replayed by a
-        deterministic autopilot through <code>evo:trial</code>; only a fair, winning form is kept.
+        这里是 Aura 的真实工作区：每个世界都是 <code>(level ...)</code> 形式，
+        候选会先在 <code>evo:trial</code> 里试玩。孩子默认看不到这些。
       </p>
+      <div class="dev-actions">
+        <button id="evolve" class="ghost">EDSL 进化一次</button>
+      </div>
       <div id="evo-log" class="evo-log">
-        <div class="empty">No proposals yet. Press <kbd>E</kbd> or Evolve layout.</div>
+        <div class="empty">还没有进化记录。点上面的按钮试试。</div>
       </div>
     </section>
   </div>
