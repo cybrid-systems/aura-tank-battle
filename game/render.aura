@@ -1,0 +1,57 @@
+;; ASCII view for the headless arena. Pure: it reads a state hash and
+;; returns strings, so the same board appears in the demo, the tests and
+;; the interactive terminal loop.
+(require "std/string")
+(require "std/list")
+
+(export render:board render:hud render:legend render:help)
+
+(define (r-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (r-num h k d) (let ((v (r-get h k d))) (if (number? v) v d)))
+(define (r-tile? tiles x y)
+  (let loop ((xs tiles))
+    (cond ((not (pair? xs)) #f)
+          ((and (= (r-num (car xs) "x" -1) x)
+                (= (r-num (car xs) "y" -1) y)) #t)
+          (else (loop (cdr xs))))))
+(define (r-char st x y)
+  (let ((player (r-get st "player" (hash)))
+        (base (r-get st "base" (hash))))
+    (cond
+      ((and (= x (r-num player "x" -1)) (= y (r-num player "y" -1))) "P")
+      ((and (= x (r-num base "x" -1)) (= y (r-num base "y" -1))) "B")
+      ((r-tile? (r-get st "enemies" '()) x y) "E")
+      ((r-tile? (r-get st "bullets" '()) x y) "*")
+      ((r-tile? (r-get st "bricks" '()) x y) "#")
+      ((r-tile? (r-get st "steel" '()) x y) "S")
+      ((r-tile? (r-get st "water" '()) x y) "~")
+      (else "."))))
+
+(define (r-row st y)
+  (let loop ((x 0) (acc ""))
+    (if (>= x 13)
+      (string-append acc "\n")
+      (loop (+ x 1) (string-append acc (r-char st x y))))))
+
+(define (render:board st)
+  (let loop ((y 0) (acc ""))
+    (if (>= y 13)
+      acc
+      (loop (+ y 1) (string-append acc (r-row st y))))))
+
+(define (render:hud st)
+  (string-append
+    "tick=" (number->string (r-num st "tick" 0))
+    " score=" (number->string (r-num st "score" 0))
+    " lives=" (number->string (r-num st "lives" 0))
+    " level=" (number->string (r-num st "level" 1))
+    "/" (number->string (r-num st "levels" 2))
+    " enemies=" (number->string (length (r-get st "enemies" '())))
+    " shield=" (number->string (r-num st "shield" 0))
+    " status=" (r-get st "status" "")))
+
+(define (render:legend)
+  "P you  B base  E enemy  * bullet  # brick  S steel  ~ water  . open")
+
+(define (render:help)
+  "commands: w/a/s/d move, f fire, . wait, q quit (one command per line)")

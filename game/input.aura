@@ -1,0 +1,23 @@
+;; One line of terminal text to one arena input. Pure, so the parser is
+;; tested without a live stdin.
+(require "std/string")
+
+(export input:parse input:help)
+
+(define (input:parse line)
+  (let* ((text (if (string? line) line ""))
+         (s (string-downcase (string-trim text))))
+    (cond
+      ((= (string-length s) 0) (hash))
+      ((or (equal? s ".") (equal? s "wait")) (hash))
+      ((or (equal? s "w") (equal? s "up")) (hash "move" "up"))
+      ((or (equal? s "a") (equal? s "left")) (hash "move" "left"))
+      ((or (equal? s "s") (equal? s "down")) (hash "move" "down"))
+      ((or (equal? s "d") (equal? s "right")) (hash "move" "right"))
+      ((or (equal? s "f") (equal? s "fire")) (hash "fire" #t))
+      ((or (equal? s "q") (equal? s "quit") (equal? s "exit"))
+       (hash "quit" #t))
+      (else (hash "invalid" s)))))
+
+(define (input:help)
+  "w/a/s/d move, f fire, . wait, q quit")

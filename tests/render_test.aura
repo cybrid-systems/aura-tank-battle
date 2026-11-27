@@ -1,0 +1,14 @@
+;; The ASCII view is part of the game contract: a deterministic board for
+;; a fresh arena.
+(require "std/string")
+(require "game/arena")
+(require "game/render")
+
+(define st (arena:new (hash "seed" 42 "levels" 1)))
+(display (render:board st))
+(display (render:hud st))
+(newline)
+(display (render:legend))
+(newline)
+(display (render:help))
+(newline)

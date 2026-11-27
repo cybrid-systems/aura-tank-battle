@@ -1,0 +1,9 @@
+line=w move=up fire=#f wait=#f quit=#f invalid=-
+line=up move=up fire=#f wait=#f quit=#f invalid=-
+line=a move=left fire=#f wait=#f quit=#f invalid=-
+line=s move=down fire=#f wait=#f quit=#f invalid=-
+line=d move=right fire=#f wait=#f quit=#f invalid=-
+line=F move=- fire=#t wait=#f quit=#f invalid=-
+line=. move=- fire=#f wait=#t quit=#f invalid=-
+line=q move=- fire=#f wait=#f quit=#t invalid=-
+line=nope move=- fire=#f wait=#f quit=#f invalid=nope

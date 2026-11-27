@@ -1,0 +1,73 @@
+;; Interactive terminal loop. It uses the same arena:step as the demo and
+;; the tests; this file only renders a board and reads one command per line.
+(require "std/string")
+(require "std/list")
+(require "game/arena")
+(require "game/render")
+(require "game/input")
+
+(define (p-events events)
+  (if (pair? events)
+    (string-join (map (lambda (e) (if (string? e) e "?")) events) ",")
+    "-"))
+
+(define (p-banner)
+  (display "aura-tank-battle — defend the B at the bottom")
+  (newline)
+  (display (render:legend))
+  (newline)
+  (display (input:help))
+  (newline)
+  (newline))
+
+(define (p-finish st)
+  (display (if (equal? (hash-ref st "status" "") "won")
+             "you win: all levels cleared"
+             "game over: the base fell"))
+  (newline)
+  (display "score=") (display (hash-ref st "score" 0))
+  (display " lives=") (display (hash-ref st "lives" 0))
+  (display " level=") (display (hash-ref st "level" 1))
+  (newline))
+
+(define (p-bye)
+  (display "bye")
+  (newline))
+
+(define (p-step st cmd turns)
+  (let ((next (arena:step st cmd)))
+    (display "event=")
+    (display (p-events (hash-ref next "events" '())))
+    (newline)
+    (p-loop next (+ turns 1))))
+
+(define (p-read st turns)
+  (display "> ")
+  (let ((line (read-line)))
+    (if (eof-object? line)
+      (p-bye)
+      (let ((cmd (input:parse line)))
+        (cond
+          ((equal? (hash-ref cmd "quit" #f) #t) (p-bye))
+          ((hash-ref cmd "invalid" #f)
+           (display "unknown command: ")
+           (display (hash-ref cmd "invalid" ""))
+           (newline)
+           (display (input:help))
+           (newline)
+           (p-loop st turns))
+          (else (p-step st cmd turns)))))))
+
+(define (p-loop st turns)
+  (display (render:board st))
+  (display (render:hud st))
+  (newline)
+  (if (not (equal? (hash-ref st "status" "playing") "playing"))
+    (p-finish st)
+    (p-read st turns)))
+
+(define (p-run)
+  (p-banner)
+  (p-loop (arena:new (hash "seed" 42 "levels" 2)) 0))
+
+(p-run)

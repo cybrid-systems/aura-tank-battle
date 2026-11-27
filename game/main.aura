@@ -4,6 +4,7 @@
 (require "std/list")
 (require "game/arena")
 (require "game/assert")
+(require "game/render")
 
 (define (line k v) (display k) (display "=") (display v) (newline))
 
@@ -21,9 +22,14 @@
 (line "tick" (hash-ref st "tick"))
 (line "player-x" (hash-ref (hash-ref st "player") "x"))
 (line "bullets" (length (hash-ref st "bullets")))
+(line "bricks" (length (hash-ref st "bricks")))
+(line "enemies" (length (hash-ref st "enemies")))
 (line "score" (hash-ref st "score"))
 (line "lives" (hash-ref st "lives"))
 (line "level" (hash-ref st "level"))
 (line "status" (hash-ref st "status"))
 (line "frames" (hash-ref run "frames"))
 (line "assertions-ok" (hash-ref run "ok"))
+(display "board:") (newline)
+(display (render:board st))
+(display (render:hud st)) (newline)

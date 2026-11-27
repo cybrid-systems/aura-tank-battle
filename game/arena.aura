@@ -8,7 +8,9 @@
 (export arena:new arena:step arena:help)
 
 (define (arena:help)
-  "Arena: (arena:new opts); (arena:step state input) -> next state with events")
+  (string-append
+    "Arena: (arena:new opts) -> state; (arena:step state input) -> next state with events. "
+    "opts: seed, levels, tuning (player-speed, fire-cooldown, enemy-cooldown, enemy-score)."))
 
 (define (a-get h k d) (if (hash? h) (hash-ref h k d) d))
 (define (a-num h k d) (let ((v (a-get h k d))) (if (number? v) v d)))
@@ -51,8 +53,38 @@
                                 (= (a-num e "y" -1) y))))
           enemies))
 
+; Level 1 enemies are the three originals. Later levels add one center
+; enemy and start the others with different fire cooldowns, so a replay of
+; the same input script does not depend on wall-clock time.
+(define (a-enemies-for level)
+  (if (>= level 2)
+    (list (hash "x" 1 "y" 0 "cooldown" 4)
+          (hash "x" 6 "y" 0 "cooldown" 2)
+          (hash "x" 11 "y" 0 "cooldown" 5))
+    (list (hash "x" 1 "y" 0 "cooldown" 3)
+          (hash "x" 6 "y" 0 "cooldown" 2)
+          (hash "x" 11 "y" 0 "cooldown" 4))))
+
+; Compatibility for the frame checks that only need the level-1 spawn.
 (define (a-enemies)
-  (list (hash "x" 1 "y" 0) (hash "x" 6 "y" 0) (hash "x" 11 "y" 0)))
+  (a-enemies-for 1))
+
+; Level layouts. The base is always (6,12); the shield, steel and water
+; differ. arena:new uses level 1; a clear loads the next layout in place.
+(define (a-layout level)
+  (if (>= level 2)
+    (hash "bricks" (list (hash "x" 5 "y" 10) (hash "x" 6 "y" 10)
+                         (hash "x" 7 "y" 10) (hash "x" 5 "y" 11)
+                         (hash "x" 7 "y" 11) (hash "x" 3 "y" 7)
+                         (hash "x" 4 "y" 7) (hash "x" 8 "y" 6)
+                         (hash "x" 9 "y" 6))
+          "steel" (list (hash "x" 2 "y" 6) (hash "x" 10 "y" 9))
+          "water" (list (hash "x" 8 "y" 8) (hash "x" 9 "y" 8)))
+    (hash "bricks" (list (hash "x" 5 "y" 10) (hash "x" 6 "y" 10)
+                         (hash "x" 7 "y" 10) (hash "x" 5 "y" 11)
+                         (hash "x" 7 "y" 11))
+          "steel" (list (hash "x" 2 "y" 6))
+          "water" (list (hash "x" 8 "y" 8)))))
 
 (define (a-player-x st) (a-num (a-get st "player" (hash)) "x" -1))
 (define (a-player-y st) (a-num (a-get st "player" (hash)) "y" -1))
@@ -124,7 +156,10 @@
        (a-event st "bullet-hit-steel"))
       ((and (= nx (a-base-x st)) (= ny (a-base-y st)))
        (a-event (a-with st "status" "lost") "base-destroyed"))
-      ((a-enemy-at? (a-get st "enemies" '()) nx ny)
+      ; Only the player scores a kill; an enemy round passes through
+      ; another enemy instead of trading the board for free points.
+      ((and (equal? owner "player")
+            (a-enemy-at? (a-get st "enemies" '()) nx ny))
        (a-event (a-with (a-with st "enemies"
                                 (a-remove-enemy (a-get st "enemies" '()) nx ny))
                         "score" (+ (a-num (a-get st "tuning" (hash)) "enemy-score" 100)
@@ -132,9 +167,14 @@
                 "enemy-destroy"))
       ((and (equal? owner "enemy")
             (= nx (a-player-x st)) (= ny (a-player-y st)))
-       (let* ((lives (max 0 (- (a-num st "lives" 1) 1)))
-              (status (if (= lives 0) "lost" "playing")))
-         (a-event (a-with (a-with st "lives" lives) "status" status) "player-hit")))
+       (if (> (a-num st "shield" 0) 0)
+         (a-event st "shielded")
+         (let* ((lives (max 0 (- (a-num st "lives" 1) 1)))
+                (status (if (= lives 0) "lost" "playing"))
+                (next (a-with (a-with (a-with st "lives" lives) "status" status)
+                              "player" (hash "x" 4 "y" 12 "dir" "up"))))
+           (a-event (if (= lives 0) next (a-with next "shield" 30))
+                    "player-hit"))))
       (else
        (a-with st "bullets"
                (cons (a-with (a-with b "x" nx) "y" ny) (a-get st "bullets" '())))))))
@@ -145,35 +185,111 @@
       acc
       (loop (cdr xs) (a-step-bullet acc (car xs))))))
 
+; Enemy patrol: walk toward the base column, then down. A blocked
+; horizontal step falls back to a downward step; a brick/steel/water cell
+; stops the enemy there and its gun does the work. Enemies never enter the
+; player or base cell and never stack on one another.
+(define (a-enemy-can? st x y)
+  (and (not (a-out? x y))
+       (not (a-tile? (a-get st "bricks" '()) x y))
+       (not (a-tile? (a-get st "steel" '()) x y))
+       (not (a-tile? (a-get st "water" '()) x y))
+       (not (a-enemy-at? (a-get st "enemies" '()) x y))
+       (not (and (= x (a-player-x st)) (= y (a-player-y st))))
+       (not (and (= x (a-base-x st)) (= y (a-base-y st))))))
+
+(define (a-enemy-move st e)
+  (let* ((x (a-num e "x" 0)) (y (a-num e "y" 0))
+         (hx (cond ((< x (a-base-x st)) 1)
+                   ((> x (a-base-x st)) -1)
+                   (else 0)))
+         (dy (if (< y (a-base-y st)) 1 0))
+         (ny (+ y dy))
+         (moved
+           (cond
+             ((and (not (= hx 0)) (a-enemy-can? st (+ x hx) y))
+              (a-with e "x" (+ x hx)))
+             ((and (= hx 0) (= dy 1) (a-enemy-can? st x ny))
+              (a-with e "y" ny))
+             ((and (not (= hx 0)) (= dy 1) (a-enemy-can? st x ny))
+              (a-with e "y" ny))
+             (else e))))
+    moved))
+
+; Fire when the barrel points down a lane the base or player occupies.
+; The cooldown is per enemy and ticks down on every enemy action.
+(define (a-enemy-act st e)
+  (let* ((moved (a-enemy-move st e))
+         (x (a-num moved "x" 0))
+         (y (a-num moved "y" 0))
+         (cool (a-num moved "cooldown" 0))
+         (aim (or (= x (a-base-x st)) (= x (a-player-x st))))
+         (st2 (if (and aim (<= cool 0) (< y 12))
+                (a-event
+                  (a-with st "bullets"
+                          (cons (hash "x" x "y" (+ y 1) "dir" "down"
+                                      "owner" "enemy")
+                                (a-get st "bullets" '())))
+                  "enemy-fired")
+                st)))
+    (hash "state" st2
+          "enemy" (if (and aim (<= cool 0) (< y 12))
+                    (a-with moved "cooldown"
+                              (a-num (a-get st "tuning" (hash)) "enemy-cooldown" 6))
+                    (a-with moved "cooldown" (max 0 (- cool 1)))))))
+
+(define (a-enemies-step st)
+  (if (not (equal? (a-get st "status" "") "playing"))
+    st
+    (let loop ((xs (a-get st "enemies" '())) (cur st) (acc '()))
+      (if (not (pair? xs))
+        (a-with cur "enemies" (reverse acc))
+        (let* ((one (a-enemy-act cur (car xs)))
+               (moved (a-get one "enemy" (car xs)))
+               (next (a-get one "state" cur))
+               (next (a-with next "enemies"
+                             (append (reverse acc) (cons moved (cdr xs))))))
+          (loop (cdr xs) next (cons moved acc)))))))
+
 (define (a-clear st)
   (if (not (equal? (a-get st "status" "") "playing"))
     st
     (if (pair? (a-get st "enemies" '()))
       st
-      (let ((level (a-num st "level" 1))
-            (levels (a-num st "levels" 2)))
+      (let* ((level (a-num st "level" 1))
+             (levels (a-num st "levels" 2))
+             (next (+ level 1))
+             (layout (a-layout next)))
         (cond
           ((< level levels)
-           (a-event (a-event (a-with (a-with st "level" (+ level 1))
-                                     "enemies" (a-enemies))
-                             "enemies-cleared")
-                    "enemy-spawn"))
+           (a-event
+             (a-event
+               (a-with
+                 (a-with
+                   (a-with
+                     (a-with (a-with st "level" next)
+                             "enemies" (a-enemies-for next))
+                     "bricks" (a-get layout "bricks" '()))
+                   "steel" (a-get layout "steel" '()))
+                 "water" (a-get layout "water" '()))
+               "enemies-cleared")
+             "enemy-spawn"))
           (else (a-event (a-with st "status" "won") "enemies-cleared")))))))
 
 (define (arena:new opts)
-  (let ((players (a-num opts "players" 1))
-        (levels (a-num opts "levels" 2)))
+  (let* ((players (a-num opts "players" 1))
+         (levels (a-num opts "levels" 2))
+         (layout (a-layout 1)))
     (hash "player" (hash "x" 4 "y" 12 "dir" "up")
           "tuning" (a-get opts "tuning" (hash))
           "tick" 0 "bullets" '() "cooldown" 0
-          "bricks" (list (hash "x" 5 "y" 10) (hash "x" 6 "y" 10)
-                         (hash "x" 7 "y" 10) (hash "x" 5 "y" 11)
-                         (hash "x" 7 "y" 11))
-          "steel" (list (hash "x" 2 "y" 6))
-          "water" (list (hash "x" 8 "y" 8))
+          "bricks" (a-get opts "bricks" (a-get layout "bricks" '()))
+          "steel" (a-get opts "steel" (a-get layout "steel" '()))
+          "water" (a-get opts "water" (a-get layout "water" '()))
           "base" (hash "x" 6 "y" 12)
-          "enemies" (a-enemies)
+          "enemies" (a-enemies-for 1)
           "score" 0 "lives" 3 "level" 1 "levels" levels
+          "seed" (a-num opts "seed" 0) "shield" 0
           "status" "playing" "frame_ms" 0 "visual_diff_ok" #t
           "players" players "events" '())))
 
@@ -181,9 +297,11 @@
   (let* ((t0 (monotonic-ms))
          (st (a-with (a-with state "tick" (+ 1 (a-num state "tick" 0))) "events" '()))
          (st (a-with (a-with st "frame_ms" 0) "visual_diff_ok" #t))
+         (st (a-with st "shield" (max 0 (- (a-num st "shield" 0) 1))))
          (st (a-move st input))
          (st (a-fire st input))
          (st (a-run-bullets st))
+         (st (a-enemies-step st))
          (st (a-clear st))
          (dt (- (monotonic-ms) t0)))
     (a-with st "frame_ms" (max 0 dt))))

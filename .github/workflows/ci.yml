@@ -11,9 +11,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install pinned Aura
         run: echo "$(bash scripts/install-aura.sh)" >> "$GITHUB_PATH"
+      - name: Baseline pin
+        run: python3 scripts/check-baseline.py --self
       - name: Test
         run: aura test
       - name: Playable headless demo
         run: aura run game/main.aura
+      - name: Interactive smoke
+        run: printf 'd\nf\nq\n' | aura run game/play.aura
       - name: Bootstrap seed round
         run: aura run bootstrap/run.aura

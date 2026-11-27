@@ -97,6 +97,47 @@
 (line "next-level" (hash-ref (hash-ref next-run "state") "level"))
 (line "next-enemies" (length (hash-ref (hash-ref next-run "state") "enemies")))
 
+; Enemy patrol and fire are deterministic: the left and right tanks close
+; one column per turn, the middle tank closes one row per turn, and the
+; middle lane fires once its cooldown reaches zero.
+(define ai-one (arena:step (arena:new (hash "seed" 42 "players" 1 "levels" 2)) (hash)))
+(define ai-enemies (hash-ref ai-one "enemies"))
+(line "enemy-left-x" (hash-ref (car ai-enemies) "x"))
+(line "enemy-mid-y" (hash-ref (car (cdr ai-enemies)) "y"))
+(line "enemy-right-x" (hash-ref (car (cdr (cdr ai-enemies))) "x"))
+
+(define ai-start (arena:step (arena:new (hash "seed" 42 "players" 1 "levels" 2)) (hash)))
+(define ai-final
+  (let loop ((i 0) (s ai-start) (events '()))
+    (if (>= i 5)
+      (hash "state" s "events" events)
+      (let ((next (arena:step s (hash))))
+        (loop (+ i 1) next
+              (append events (hash-ref next "events" '())))))))
+(line "enemy-fired" (member? "enemy-fired" (hash-ref ai-final "events" '())))
+(line "enemy-bullets" (length (hash-ref (hash-ref ai-final "state") "bullets")))
+
+; Level 2 loads a wider brick field and a second steel and water tile.
+(define next-layout
+  (arena:step (with (with (base-state) "level" 1) "enemies" '()) (hash)))
+(line "next-bricks" (length (hash-ref next-layout "bricks")))
+(line "next-steel" (length (hash-ref next-layout "steel")))
+(line "next-water" (length (hash-ref next-layout "water")))
+
+; A shield absorbs the hit and the player stays; an unshielded last life
+; ends the run.
+(define shield-before
+  (with (with (base-state) "shield" 5) "bullets"
+        (list (hash "x" 4 "y" 11 "dir" "down" "owner" "enemy"))))
+(define shield-run (arena:step shield-before (hash)))
+(line "shield-lives" (hash-ref shield-run "lives"))
+(line "shield-event" (member? "shielded" (hash-ref shield-run "events" '())))
+(define last-life
+  (with (with (with (base-state) "lives" 1) "shield" 0) "bullets"
+        (list (hash "x" 4 "y" 11 "dir" "down" "owner" "enemy"))))
+(define last-run (arena:step last-life (hash)))
+(line "last-status" (hash-ref last-run "status"))
+
 (define repeat-a (game:run (base-state) arena:step (list (hash "move" "right") (hash "fire" #t)) invariants))
 (define repeat-b (game:run (base-state) arena:step (list (hash "move" "right") (hash "fire" #t)) invariants))
 (line "repeat-x" (= (hash-ref (hash-ref (hash-ref repeat-a "state") "player") "x")

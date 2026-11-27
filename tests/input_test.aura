@@ -1,0 +1,23 @@
+;; Terminal commands map to arena inputs without touching stdin.
+(require "std/string")
+(require "game/input")
+
+(define (show line)
+  (let ((c (input:parse line)))
+    (display "line=") (display (string-trim line))
+    (display " move=") (display (hash-ref c "move" "-"))
+    (display " fire=") (display (hash-ref c "fire" #f))
+    (display " wait=") (display (= 0 (length (hash-keys c))))
+    (display " quit=") (display (hash-ref c "quit" #f))
+    (display " invalid=") (display (hash-ref c "invalid" "-"))
+    (newline)))
+
+(show "w")
+(show " up ")
+(show "a")
+(show "s")
+(show "d")
+(show "F")
+(show ".")
+(show "q")
+(show "nope")
