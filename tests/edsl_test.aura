@@ -19,5 +19,6 @@
 (line "out-of-bounds" (why '(level (name x) (bricks (13 0)))))
 (line "base-sealed" (why '(level (name x) (bricks (5 12) (7 12) (6 11)))))
 (line "duplicate" (why '(level (name x) (bricks (5 10)) (steel (5 10)))))
+(line "same-duplicate" (why '(level (name x) (bricks (5 10) (5 10)))))
 (line "tuning-range" (why '(level (name x) (tuning (player-speed 9)))))
 (line "bad-head" (why '(arena (name x))))

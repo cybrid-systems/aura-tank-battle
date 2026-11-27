@@ -110,6 +110,13 @@
                   (e-num (hash-ref (car xs) "y" -1) -1)) #t)
           (else (loop (cdr xs))))))
 
+(define (e-dup-self? tiles)
+  (let loop ((xs tiles))
+    (cond ((not (pair? xs)) #f)
+          ((e-on? (cdr xs) (e-num (hash-ref (car xs) "x" -1) -1)
+                  (e-num (hash-ref (car xs) "y" -1) -1)) #t)
+          (else (loop (cdr xs))))))
+
 (define (e-base-ring-free? bricks steel water)
   ; The ring is blocked only when all three neighbours are solid.
   (not (and (or (e-on? bricks 5 12) (e-on? steel 5 12) (e-on? water 5 12))
@@ -141,7 +148,9 @@
                    (cond ((not (pair? xs)) #f)
                          ((not (hash-ref (car xs) "ok" #f)) (car xs))
                          (else (loop (cdr xs))))))
-            (dup (or (e-dup? bricks steel) (e-dup? bricks water)
+            (dup (or (e-dup-self? bricks) (e-dup-self? steel)
+                     (e-dup-self? water)
+                     (e-dup? bricks steel) (e-dup? bricks water)
                      (e-dup? steel water)))
             (count-ok (and (<= (length bricks) 40)
                            (<= (length steel) 12)

@@ -9,5 +9,6 @@ pretty=(level (name courtyard) (bricks (5 10) (6 10) (7 10) (5 11) (7 11)) (stee
 out-of-bounds=bricks:out-of-bounds
 base-sealed=base-sealed
 duplicate=duplicate-tile
+same-duplicate=duplicate-tile
 tuning-range=tuning-range
 bad-head=level-head-expected
