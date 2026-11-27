@@ -146,7 +146,7 @@ function updateHud() {
   if (!state) return;
   hud.score.textContent = String(state.score ?? 0);
   hud.lives.textContent = String(state.lives ?? 0);
-  hud.level.textContent = `${state.level ?? 1} / ${state.levels ?? 2}`;
+  hud.level.textContent = `第 ${state.level ?? 1} 关`;
   hud.enemies.textContent = String(arr(state.enemies).length);
   hud.shield.textContent = String(state.shield ?? 0);
   const theme = themeList().find((t) => t.id === state.level_name);
@@ -422,10 +422,18 @@ async function tickOnce() {
   try {
     const res = await post("/api/tick", { input: inputFromKeys() });
     absorb(res.state, res);
-    if (res.state.status !== "playing") {
+    if (res.state.status === "cleared") {
       stopLoop();
       paused = true;
-      showEnd(res.state.status === "won");
+      showLevelClear();
+    } else if (res.state.status === "lost") {
+      stopLoop();
+      paused = true;
+      showEnd(false);
+    } else if (res.state.status === "won") {
+      stopLoop();
+      paused = true;
+      showEnd(true);
     }
   } catch (err) {
     console.error(err);
@@ -456,7 +464,7 @@ function stopLoop() {
 
 async function newGame() {
   try {
-    const res = await post("/api/new", { seed: 42, levels: 2 });
+    const res = await post("/api/new", { seed: 42 });
     absorb(res.state, res);
     effects = [];
     shake = 0;
@@ -501,7 +509,7 @@ function button(label, primary, onClick) {
 }
 
 function showStart() {
-  sheet("坦克小世界", "和小光一起守护水晶。收集星星，把捣蛋机器人变成朋友。", (box) => {
+  sheet("坦克小世界", "和小光一起守护水晶。每一关都不一样，打退所有捣蛋鬼就能去下一关；输了小光会把难度调低。", (box) => {
     const hero = document.createElement("div");
     hero.className = "buddy-hero";
     hero.textContent = "🌟";
@@ -519,14 +527,67 @@ function showEnd(won) {
   const title = won ? "守住啦！" : "水晶裂了……";
   const text = won
     ? `你收集了 ${s.score ?? 0} 颗星星，小光开心得转圈圈。`
-    : `没关系，小光把碎片捡回来了。你收集了 ${s.score ?? 0} 颗星星，再来一次？`;
+    : `没关系，小光把难度调低一点，再试一次？你已经有 ${s.score ?? 0} 颗星星了。`;
   sheet(title, text, (box) => {
     const actions = document.createElement("div");
     actions.className = "actions";
-    actions.append(button("再来一次", true, () => newGame()));
+    actions.append(button(won ? "再玩一次" : "再来一次（简单点）", true,
+      () => (won ? newGame() : retryLevel())));
     actions.append(button("换个世界", false, () => openWish()));
     box.append(actions);
   });
+}
+
+function showLevelClear() {
+  const s = state || {};
+  sheet(`第 ${s.level ?? 1} 关通过！`, "所有捣蛋鬼都变成星星了。小光找到了下一扇门，后面的坦克会多一点，也会更聪明。", (box) => {
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    actions.append(button("进入下一关", true, () => nextLevel()));
+    actions.append(button("先许个愿", false, () => openWish()));
+    box.append(actions);
+  });
+}
+
+async function nextLevel() {
+  if (busy) return;
+  busy = true;
+  sheet("门打开了", "Aura 正在把一个更大一点的挑战搭出来……", () => {});
+  try {
+    const res = await post("/api/next", { seed: (Date.now() % 100000) + 1 });
+    if (res.type === "error") throw new Error(res.error || "next failed");
+    absorb(res.state, res);
+    effects = [];
+    shake = 0;
+    overlay.classList.remove("open");
+    paused = false;
+    startLoop();
+    buddySay(`第 ${state.level} 关，捣蛋鬼变多了！`);
+  } catch (err) {
+    showError("下一扇门卡住了，再试一次吧。");
+  } finally {
+    busy = false;
+  }
+}
+
+async function retryLevel() {
+  if (busy) return;
+  busy = true;
+  try {
+    const res = await post("/api/retry", { seed: (Date.now() % 100000) + 1 });
+    if (res.type === "error") throw new Error(res.error || "retry failed");
+    absorb(res.state, res);
+    effects = [];
+    shake = 0;
+    overlay.classList.remove("open");
+    paused = false;
+    startLoop();
+    buddySay("小光把难度调低了一点。");
+  } catch (err) {
+    showError("再试一次没成功，看看 bridge 还在不在。");
+  } finally {
+    busy = false;
+  }
 }
 
 function showError(msg) {
@@ -556,6 +617,8 @@ function resumeGame() {
   if (state && state.status === "playing") {
     paused = false;
     startLoop();
+  } else if (state && state.status === "cleared") {
+    showLevelClear();
   } else if (state) {
     showEnd(state.status === "won");
   }
@@ -924,7 +987,7 @@ async function evolve() {
 
 async function boot() {
   try {
-    const res = await post("/api/new", { seed: 42, levels: 2 });
+    const res = await post("/api/new", { seed: 42 });
     absorb(res.state, res);
     showStart();
   } catch (err) {

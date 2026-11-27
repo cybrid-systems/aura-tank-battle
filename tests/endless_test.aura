@@ -1,0 +1,27 @@
+;; Endless rounds: tank count follows difficulty, and a clear hands the
+;; next round to the bridge instead of ending the run.
+(require "std/string")
+(require "std/list")
+(require "game/arena")
+
+(define (line k v) (display k) (display "=") (display v) (newline))
+(define (copy h)
+  (let ((out (hash)))
+    (for-each (lambda (k) (hash-set! out k (hash-ref h k))) (hash-keys h))
+    out))
+
+(define st (arena:new (hash "endless" #t "level" 3 "difficulty" 2
+                            "score" 500 "lives" 2)))
+(line "endless-enemies" (length (hash-ref st "enemies")))
+(line "endless-level" (hash-ref st "level"))
+(line "endless-difficulty" (hash-ref st "difficulty"))
+
+(define empty (let ((c (copy st))) (hash-set! c "enemies" '()) c))
+(define cleared (arena:step empty (hash)))
+(line "clear-status" (hash-ref cleared "status"))
+(line "clear-events" (hash-ref cleared "events"))
+(line "clear-score" (hash-ref cleared "score"))
+(line "clear-lives" (hash-ref cleared "lives"))
+
+(define low (arena:new (hash "endless" #t "level" 3 "difficulty" 1)))
+(line "low-enemies" (length (hash-ref low "enemies")))

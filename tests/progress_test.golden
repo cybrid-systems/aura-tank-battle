@@ -1,0 +1,16 @@
+start-level=1
+start-difficulty=1
+start-tanks=3
+next-ok=#t
+next-level=2
+next-difficulty=1.35
+next-tanks=3
+next-score=450
+next-lives=3
+next-verdict=KEEP
+retry-ok=#t
+retry-level=1
+retry-difficulty=1.5
+retry-tanks=4
+retry-lives=3
+retry-score=300

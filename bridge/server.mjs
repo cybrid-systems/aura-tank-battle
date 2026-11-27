@@ -142,7 +142,15 @@ async function api(req, res, pathname) {
       return;
     }
     if (pathname === "/api/new") {
-      send(res, 200, await call({ cmd: "new", seed: body.seed ?? 42, levels: body.levels ?? 2 }));
+      send(res, 200, await call({ cmd: "new", seed: body.seed ?? 42 }));
+      return;
+    }
+    if (pathname === "/api/next") {
+      send(res, 200, await call({ cmd: "next", seed: body.seed ?? 42 }, 60000));
+      return;
+    }
+    if (pathname === "/api/retry") {
+      send(res, 200, await call({ cmd: "retry", seed: body.seed ?? 42 }));
       return;
     }
     if (pathname === "/api/evolve") {

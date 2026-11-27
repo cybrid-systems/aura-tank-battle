@@ -1,0 +1,61 @@
+;; Endless progression. The arena owns one round; this module owns the
+;; handoff: clear -> evolved next round with more tanks, lose -> same level
+;; with a lower difficulty and a fresh set of balloons.
+(require "std/string")
+(require "std/list")
+(require "std/math")
+(require "game/arena")
+(require "game/evolve")
+
+(export progress:start progress:next progress:retry progress:help)
+
+(define (progress:help)
+  "Progress: (progress:start spec seed); (progress:next spec state seed); (progress:retry spec state seed).")
+
+(define (p-get h k d) (if (hash? h) (hash-ref h k d) d))
+(define (p-num h k d) (let ((v (p-get h k d))) (if (number? v) v d)))
+
+(define (progress:start spec seed)
+  (arena:new (hash "spec" spec
+                   "levels" 0 "endless" #t
+                   "level" 1 "difficulty" 1
+                   "score" 0 "lives" 3
+                   "seed" seed
+                   "tuning" (hash "enemy-pace" 4))))
+
+(define (progress:next spec st seed)
+  (if (not (equal? (p-get st "status" "") "cleared"))
+    (hash "ok" #f "why" "not-cleared")
+    (let* ((difficulty (+ (p-num st "difficulty" 1) 0.35))
+           (level (+ (p-num st "level" 1) 1))
+           (chosen (try (tank-evo:evolve spec seed) (catch (e) #f)))
+           (keep (and (hash? chosen)
+                      (equal? (p-get chosen "verdict" "") "KEEP")))
+           (next-spec (if keep (p-get chosen "spec" spec) spec))
+           (state (arena:new (hash "spec" next-spec
+                                   "levels" 0 "endless" #t
+                                   "level" level "difficulty" difficulty
+                                   "score" (p-num st "score" 0)
+                                   "lives" 3
+                                   "seed" seed
+                                   "tuning" (hash "enemy-pace" 4
+                                                  "enemy-cooldown"
+                                                  (max 3 (- 9 (round difficulty))))))))
+      (hash "ok" #t "verdict" (if keep "KEEP" "ROLLBACK")
+            "spec" next-spec "state" state))))
+
+(define (progress:retry spec st seed)
+  (if (not (equal? (p-get st "status" "") "lost"))
+    (hash "ok" #f "why" "not-lost")
+    (let* ((difficulty (max 1 (- (p-num st "difficulty" 1) 0.5)))
+           (level (p-num st "level" 1))
+           (state (arena:new (hash "spec" spec
+                                   "levels" 0 "endless" #t
+                                   "level" level "difficulty" difficulty
+                                   "score" (p-num st "score" 0)
+                                   "lives" 3
+                                   "seed" seed
+                                   "tuning" (hash "enemy-pace" 4
+                                                  "enemy-cooldown"
+                                                  (max 3 (- 9 (round difficulty))))))))
+      (hash "ok" #t "state" state))))

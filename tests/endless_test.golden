@@ -1,0 +1,8 @@
+endless-enemies=4
+endless-level=3
+endless-difficulty=2
+clear-status=cleared
+clear-events=(level-cleared)
+clear-score=500
+clear-lives=2
+low-enemies=3

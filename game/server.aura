@@ -5,6 +5,7 @@
 (require "game/level")
 (require "game/arena")
 (require "game/evolve")
+(require "game/progress")
 (require "game/wish")
 
 (define *live-spec* (wish:base "candy"))
@@ -16,10 +17,21 @@
 (define (emit h) (display (json-encode h)) (newline))
 
 (define (web-state req)
-  (arena:new (hash "spec" *live-spec*
-                   "levels" (s-num req "levels" 2)
-                   "seed" (s-num req "seed" 42)
-                   "tuning" (hash "enemy-pace" 4))))
+  (progress:start *live-spec* (s-num req "seed" 42)))
+
+(define (run-next st req)
+  (let ((round (progress:next *live-spec* st (s-num req "seed" 42))))
+    (if (not (s-get round "ok" #f))
+      (hash "type" "error" "error" (s-get round "why" "not-cleared"))
+      (begin
+        (set! *live-spec* (s-get round "spec" *live-spec*))
+        (state-msg (s-get round "state" st))))))
+
+(define (run-retry st req)
+  (let ((round (progress:retry *live-spec* st (s-num req "seed" 42))))
+    (if (not (s-get round "ok" #f))
+      (hash "type" "error" "error" (s-get round "why" "not-lost"))
+      (state-msg (s-get round "state" st)))))
 
 (define (state-msg st)
   (hash "type" "state"
@@ -112,6 +124,10 @@
        (state-msg (arena:step st (s-get req "input" (hash)))))
       ((equal? cmd "new")
        (state-msg (web-state req)))
+      ((equal? cmd "next")
+       (run-next st req))
+      ((equal? cmd "retry")
+       (run-retry st req))
       ((equal? cmd "evolve")
        (run-evolve st req))
       ((equal? cmd "wish")

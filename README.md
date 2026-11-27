@@ -65,8 +65,27 @@ You have three lives. A hit costs one life, respawns you at the start and
 gives you a 30-turn shield. Enemy rounds break bricks, stop on steel and pass
 over water. Enemy tanks close on the base column, descend and fire down the
 lane; a player round can clear a wall directly in front, but it cannot destroy
-your own base. Clear both levels to win; lose the base or your last life and
-the run ends.
+your own base.
+
+A round is won when every enemy tank is gone. There is no final level: the
+run is endless. Each clear advances the level, raises the difficulty and adds
+tanks. Losing the base or your last life retries the same level with a lower
+difficulty and a fresh set of three balloons; your stars stay.
+
+## 无尽关卡 (endless)
+
+- **过关定义**: the last enemy tank is destroyed. The HUD shows 第 N 关; there
+  is no fixed final level.
+- **升级**: the bridge calls `tank-evo:evolve` on the current level. A KEEP
+  form becomes the next round; the difficulty rises by 0.35, enemy cooldown
+  drops, and tank count grows with difficulty (2–8 on the top row).
+- **输了**: difficulty drops by 0.5 (never below 1), the same level is retried
+  with fewer tanks, lives reset to three, and the score is kept.
+- **下一次许愿**: a kept wish starts a fresh endless run at level 1 with that
+  theme; the old run's stars are reset.
+
+The live progression is held in the state, so a browser refresh asks the
+bridge for a new run; the EDSL/evolution side stays deterministic per seed.
 
 ## 许个愿 (the kid loop)
 
@@ -117,12 +136,13 @@ It prints the baseline fitness, one line per candidate with `KEEP` or
 | `game/arena.aura` | Pure 13×13 state machine: move, fire, patrol, bullets, levels |
 | `game/level.aura` | Level EDSL compiler, validator and canonical printer |
 | `game/evolve.aura` | Mutation, autopilot, fitness and the `evo:trial` gate |
+| `game/progress.aura` | Endless next-round evolution and adaptive retry |
 | `game/wish.aura` | Kid themes, voice/text wishes, and the three-world round |
 | `game/server.aura` | Newline-JSON arena process used by the bridge |
 | `game/render.aura` | Terminal board and HUD strings |
 | `game/input.aura` | Terminal command parser |
 | `game/play.aura` | Terminal loop |
-| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/wish`, `/api/wish-text`, `/api/keep`, `/api/evolve` |
+| `bridge/server.mjs` | Static files plus `/api/new`, `/api/tick`, `/api/next`, `/api/retry`, `/api/wish`, `/api/wish-text`, `/api/keep`, `/api/evolve` |
 | `web/` | Canvas renderer, HUD, overlay and evolution panel |
 | `tests/` | Aura golden tests |
 | `bootstrap/`, `engine/`, `sentinel/` | The original green-field seed round |
@@ -176,6 +196,8 @@ aura run game/evolve-demo.aura
 | Test | Covers |
 | --- | --- |
 | `tests/game_test.aura` | Movement, fire, bricks/steel/water, base loss, enemy kill, level clear, score/lives, patrol, shield, last life |
+| `tests/endless_test.aura` | Difficulty-scaled tank count and the endless `cleared` handoff |
+| `tests/progress_test.aura` | Next-round evolution, carried score, adaptive retry |
 | `tests/render_test.aura` | Board, HUD and legend |
 | `tests/input_test.aura` | Command aliases, wait and quit |
 | `tests/edsl_test.aura` | EDSL compile, round-trip and refusal cases |
